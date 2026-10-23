@@ -142,18 +142,24 @@ def main():
             check("protected_writes_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*nav=1 route=1 gps=1 settings=1"))
             snapshot("map-no-data")
             check("protected_replay_rejected", "Rejected GPS" in delta or "rejected authenticated GPS" in delta or "invalid authenticated GPS" in delta)
-            offset = len((output / "serial.log").read_text(errors="replace"))
+            serial = (output / "serial.log").read_text(errors="replace")
+            tiles = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", serial)
+            check("main_screen_visible", bool(tiles))
+            previous_tile = tiles[-1]
+            offset = len(serial)
             guest.ws.send({"t": "btn", "pin": 0, "v": 1}); advance_guest(0.15)
             guest.ws.send({"t": "btn", "pin": 0, "v": 0})
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
-                if re.search(r"SYS: [^\n]*screen=main tile=NAV ", (output / "serial.log").read_text(errors="replace")[offset:]):
+                changed = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", (output / "serial.log").read_text(errors="replace")[offset:])
+                if changed:
                     break
                 guest.ws.receive()
             else:
-                check("navigation_page", False)
-            check("navigation_page", True)
-            snapshot("navigation")
+                check("screen_button_cycle", False)
+            check("screen_button_cycle", changed[-1] != previous_tile)
+            print(f"Modeled BOOT screen transition: {previous_tile} -> {changed[-1]}", flush=True)
+            snapshot("page-after-button")
             guest.disconnect()
             guest.connect(185); guest.subscribe(auth); guest.subscribe(nav)
             write_key, notify_key = authenticate("22" * 16); seq.clear()
