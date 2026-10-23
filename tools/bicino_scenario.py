@@ -34,12 +34,6 @@ def main():
             if not condition:
                 raise ValueError(name)
         def snapshot(name):
-            for _ in range(100):
-                kind, data = guest.ws.receive()
-                if kind == 2 and data[:1] == b"\1":
-                    write_png(output / (name + ".png"), data)
-                    return
-            # A late join always contains the current frame, even if it has not changed.
             from bicino_live import WebSocket
             with contextlib.closing(WebSocket(guest.state["port"])) as ws:
                 while True:
@@ -47,6 +41,19 @@ def main():
                     if kind == 2 and data[:1] == b"\1":
                         write_png(output / (name + ".png"), data)
                         return
+        def advance_guest(seconds):
+            target = None
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                kind, data = guest.ws.receive()
+                if kind == 1:
+                    message = json.loads(data)
+                    if message.get("t") == "stat":
+                        if target is None:
+                            target = message["time"] + seconds
+                        elif message["time"] >= target:
+                            return
+            raise TimeoutError("Guest clock did not advance")
         def wait_serial(pattern, timeout=90):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -85,13 +92,17 @@ def main():
             key = HKDF(algorithm=hashes.SHA256(), length=32, salt=transcript, info=b"BikeComputer owner key v2").derive(shared)
             def mac(value):
                 return hmac.new(key, value, hashlib.sha256).hexdigest()
+            comparison = int.from_bytes(hmac.new(key, b"compare|" + transcript, hashlib.sha256).digest()[:4], "big") % 1000000
+            print(f"Synthetic comparison code: {comparison:06d}", flush=True)
             confirm = f"CONFIRM|{owner}|{mac(b'claim|' + transcript)}|{b'Sim test'.hex()}"
+            advance_guest(1)
+            snapshot("pairing-code")
             check("confirmation_required", auth_send(confirm) == "ERROR|physical_confirmation_required")
             # Real UI/render and button handling run; only the input source is simulated.
-            time.sleep(1)
+            advance_guest(0.2)
             snapshot("pairing")
             guest.ws.send({"t": "btn", "pin": 0, "v": 1})
-            time.sleep(0.15)
+            advance_guest(0.15)
             guest.ws.send({"t": "btn", "pin": 0, "v": 0})
             check("button_confirmation", guest.wait_notification(auth["handle"], 10).decode() == "PAIR_READY|" + device)
             check("paired", auth_send(confirm).startswith("PAIRED|" + device + "|"))
@@ -102,34 +113,58 @@ def main():
                 server_nonce = server[3]
                 proof = mac(f"client2|{device}|{owner}|{client_nonce}|{server_nonce}".encode())
                 check("authenticated_" + client_nonce[:2], auth_send(f"PROOF|{owner}|{client_nonce}|{server_nonce}|{proof}") == f"OK2|{device}|{client_nonce}|{server_nonce}")
-                return hmac.new(key, f"session2-write|{device}|{client_nonce}|{server_nonce}".encode(), hashlib.sha256).digest()
-            write_key = authenticate("11" * 16)
+                return tuple(hmac.new(key, f"session2-{direction}|{device}|{client_nonce}|{server_nonce}".encode(), hashlib.sha256).digest() for direction in ("write", "notify"))
+            write_key, notify_key = authenticate("11" * 16)
             seq = {}
             def protected(channel, plaintext):
                 seq[channel] = seq.get(channel, 0) + 1
                 serial = struct.pack(">I", seq[channel])
                 return b"S2" + serial + AESGCM(write_key).encrypt(bytes([channel]) + bytes(7) + serial, plaintext, b"write2|" + bytes([channel]) + serial)
+            def encrypted_info(label):
+                guest.write(auth["handle"], protected(1, b"INFO"))
+                frame = guest.wait_notification(auth["handle"])
+                check("encrypted_notification_" + label, frame[:2] == b"R2" and len(frame) >= 22)
+                serial = frame[2:6]
+                plaintext = AESGCM(notify_key).decrypt(b"\x01" + bytes(7) + serial, frame[6:], b"notify2|\x01" + serial)
+                check("notification_proof_" + label, plaintext.startswith(f"DEVICE|2|{device}|1|".encode()))
+            encrypted_info("initial")
             before = (output / "serial.log").read_text(errors="replace")
             guest.write(nav["handle"], protected(2, b"1|120|Turn right at the test junction"))
             guest.write(route["handle"], protected(3, struct.pack("<iihhhh", 0, 0, 100, 0, 0, 100)))
             gps_frame = protected(4, struct.pack("<iiH", 0, 0, 90))
             guest.write(gps["handle"], gps_frame)
-            guest.write(settings["handle"], protected(5, struct.pack("<Bi", 11, 1)))
+            guest.write(settings["handle"], protected(5, struct.pack("<Bi", 11, 0)))
             time.sleep(0.4)
-            snapshot("navigation")
             guest.write(gps["handle"], gps_frame)  # Replay must not become a second GPS update.
             time.sleep(0.2)
             delta = (output / "serial.log").read_text(errors="replace")[len(before):]
             (output / "scenario-serial.log").write_text(delta)
             check("protected_writes_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*nav=1 route=1 gps=1 settings=1"))
+            snapshot("map-no-data")
             check("protected_replay_rejected", "Rejected GPS" in delta or "rejected authenticated GPS" in delta or "invalid authenticated GPS" in delta)
+            offset = len((output / "serial.log").read_text(errors="replace"))
+            guest.ws.send({"t": "btn", "pin": 0, "v": 1}); advance_guest(0.15)
+            guest.ws.send({"t": "btn", "pin": 0, "v": 0})
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                if re.search(r"SYS: [^\n]*screen=main tile=NAV ", (output / "serial.log").read_text(errors="replace")[offset:]):
+                    break
+                guest.ws.receive()
+            else:
+                check("navigation_page", False)
+            check("navigation_page", True)
+            snapshot("navigation")
             guest.disconnect()
             guest.connect(185); guest.subscribe(auth); guest.subscribe(nav)
-            write_key = authenticate("22" * 16); seq.clear()
+            write_key, notify_key = authenticate("22" * 16); seq.clear()
+            encrypted_info("reconnect")
             guest.write(gps["handle"], protected(4, struct.pack("<iiH", 100, 100, 180)))
             time.sleep(0.3)
-            snapshot("reconnected")
             check("reconnect_protected_gps_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*authOK=2 [^\n]*nav=1 route=1 gps=2 settings=1"))
+            snapshot("reconnected")
+            serial = (output / "serial.log").read_text(errors="replace")
+            check("no_guest_panic", not re.search(r"assert failed:|Guru Meditation|panic'ed|abort\(\) was called", serial))
+            check("single_boot", serial.count("BOOT_META ") == 1)
             completed = True
         finally:
             report = {"schema": 1, "passed": completed and bool(checks) and all(checks.values()), "checks": checks,

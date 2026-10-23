@@ -30,7 +30,7 @@ impl BoardModel for WaveshareAmoled175 {
         vec![
             (0, 0x5a, Box::new(Cst9217::new(self.touch.clone()))),
             (0, 0x20, Box::new(Tca9554::register_ram_stub())),
-            (0, 0x34, Box::new(Reg8Device::new("axp2101-initialization-stub", &[(0x03, 0x4a)]))),
+            (0, 0x34, Box::new(Axp2101InitStub::new())),
             (0, 0x51, Box::new(Reg8Device::new("pcf85063a-initialization-stub", &[]))),
             (0, 0x18, Box::new(Reg8Device::new("es8311-initialization-stub", &[]))),
         ]
@@ -63,6 +63,25 @@ impl BoardModel for WaveshareAmoled175 {
         vec![(0, true), (21, !self.touch.lock().expect("CST9217 touch mutex poisoned").down)]
     }
     fn report(&self) -> String { format!("AMOLED175: frames={} pixels={} size=466x466 power=stub sd=absent", self.panel.frames, self.panel.pixels_written) }
+}
+
+/// Initialization-only PMIC, with the PWR IRQ acknowledgement the guest actually uses.
+/// seichris/open-bike-computer at 50aaf9b1, waveshare_board/axp2101{.cpp,_register_policy.hpp}:
+/// status 0x49 is W1C. Ordinary register RAM turns a clear into a phantom button press,
+/// which can falsely confirm ownership. No PWR events, battery or rail behavior are modeled.
+struct Axp2101InitStub { ram: Reg8Device, ptr: u8, first: bool }
+impl Axp2101InitStub {
+    fn new() -> Self { Self { ram: Reg8Device::new("axp2101-initialization-stub", &[(0x03, 0x4a)]), ptr: 0, first: true } }
+}
+impl I2cDevice for Axp2101InitStub {
+    fn start(&mut self, read: bool) -> bool { if !read { self.first = true; } self.ram.start(read) }
+    fn write(&mut self, byte: u8) -> bool {
+        let value = if !self.first && self.ptr == 0x49 { self.ram.regs[0x49] & !byte } else { byte };
+        let ok = self.ram.write(value);
+        if self.first { self.ptr = byte; self.first = false; } else { self.ptr = self.ptr.wrapping_add(1); }
+        ok
+    }
+    fn read(&mut self) -> u8 { self.ptr = self.ptr.wrapping_add(1); self.ram.read() }
 }
 
 struct Cst9217 {
@@ -106,6 +125,19 @@ impl I2cDevice for Cst9217 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pmic_irq_acknowledgements_never_create_power_button_events() {
+        let mut device = Axp2101InitStub::new();
+        let write = |d: &mut Axp2101InitStub, reg, value| { d.start(false); d.write(reg); d.write(value); };
+        let read = |d: &mut Axp2101InitStub, reg| { d.start(false); d.write(reg); d.start(true); d.read() };
+        for _ in 0..3 { write(&mut device, 0x49, 0x0b); assert_eq!(read(&mut device, 0x49), 0); }
+        device.ram.regs[0x49] = 0x0b;
+        write(&mut device, 0x49, 8); assert_eq!(read(&mut device, 0x49), 3);
+        write(&mut device, 0x49, 3); assert_eq!(read(&mut device, 0x49), 0);
+        write(&mut device, 0x41, 0x0b); assert_eq!(read(&mut device, 0x41), 0x0b);
+        assert_eq!(read(&mut device, 3), 0x4a);
+    }
 
     #[test]
     fn full_native_panel_window_preserves_all_four_corners() {
