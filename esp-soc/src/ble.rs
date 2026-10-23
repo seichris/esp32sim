@@ -53,6 +53,7 @@ pub enum LinkError {
 }
 pub enum LinkAction {
     Connect,
+    Disconnect,
     Advertisement(Vec<u8>, bool),
     Data(u16, Vec<u8>),
 }
@@ -112,6 +113,18 @@ impl Controller {
     fn status(&mut self, op: u16, status: u8) { self.event(0x0f, &[status, 1, op as u8, (op >> 8) as u8]); }
     fn l2cap(&mut self, cid: u16, pdu: &[u8]) {
         let len = pdu.len() as u16;
+        // Core v5.4 Vol 4 E: HCI ACL fragmentation, first PB=2, continuation PB=1.
+        // Preserve the existing small-packet path; a host ATT proxy can negotiate MTU 517.
+        if pdu.len() > 251 {
+            let mut data = Vec::from(len.to_le_bytes());
+            data.extend_from_slice(&cid.to_le_bytes()); data.extend_from_slice(pdu);
+            for (i, part) in data.chunks(251).enumerate() {
+                let mut packet = vec![2, HANDLE as u8, if i == 0 { 0x20 } else { 0x10 }];
+                packet.extend_from_slice(&(part.len() as u16).to_le_bytes()); packet.extend_from_slice(part);
+                self.packets.push_back(packet);
+            }
+            return;
+        }
         let mut p = vec![2, HANDLE as u8, 0x20];
         p.extend_from_slice(&(len + 4).to_le_bytes());
         p.extend_from_slice(&len.to_le_bytes());
@@ -443,6 +456,10 @@ impl HciController for Controller {
             let Some(action) = action else { break };
             match action {
                 LinkAction::Connect if self.advertising && !self.connected => self.connect(false),
+                LinkAction::Disconnect if self.connected => {
+                    self.event(5, &[0, HANDLE as u8, 0, 0x13]);
+                    self.connected = false; self.fragments.clear(); self.emit(LinkEvent::Disconnected);
+                }
                 LinkAction::Advertisement(data, active) => {
                     let mut e = vec![2, 1, 0, 0];
                     e.extend_from_slice(&PEER);

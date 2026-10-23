@@ -1,9 +1,10 @@
-# Bicino 1.75 development capture
+# Bicino 1.75 firmware development
 
 Run an existing Bicino firmware binary, inspect its real serial diagnostics, and
 capture the mounted 466x466 display. Emulator changes live in this fork; firmware
 development stays in `open-bike-computer`. There is no new required CI job,
-firmware rebuild, physical-device connection, server, or cloud dependency.
+firmware rebuild, physical-device connection, or cloud dependency. Live mode uses
+the emulator’s existing loopback web server; capture mode needs no server.
 
 ## Everyday use (Codex, Claude, or a terminal)
 
@@ -38,6 +39,39 @@ identity, emulator commit/dirty state and binary hash, checks, and timing.
 Artifacts and firmware stay in ignored `.local/`; neither agents nor CI need to
 upload them. Raw diagnostic logs may contain build paths or synthetic identities.
 
+## Live screen, touch and logs
+
+```sh
+./tools/bicino.py start                     # once, then returns after ready + nonblank screen
+./tools/bicino.py status                    # JSON: process, readiness, panic, URL, log directory
+./tools/bicino.py screen                    # fresh mounted PNG, path + dimensions + hash
+./tools/bicino.py input '{"t":"touch","x":135,"y":415,"down":1}'
+./tools/bicino.py input '{"t":"touch","x":135,"y":415,"down":0}'
+./tools/bicino.py restart                   # stop the owned session and boot cached firmware
+./tools/bicino.py stop
+```
+
+Open `http://127.0.0.1:17500/` in Brave. Click/drag the real streamed display,
+use the modeled BOOT button for pairing, and inspect USB or ROM logs. The page’s
+Restart resets the guest; CLI `restart` starts a fresh flash image. `live` runs
+in the foreground until Ctrl-C; `start` explicitly leaves one owned background
+session. Duplicate starts fail. `--port` selects another loopback port.
+
+`.local/bicino/live/` points to the session: `serial.log`, `emulator.log`,
+`manifest.json`, `command.json`, `screen.png`, `inputs.jsonl`, and, after exit,
+`live-result.json`. Tail the two logs from either agent or any terminal. `screen`
+fetches current pixels directly from the emulator, so no browser automation or
+image library is needed. The start capture is not continuously overwritten.
+Inputs record observed guest time, not an exact input execution timestamp;
+use `--script` for deterministic guest-time replay. Live termination is never
+reported as a passing test; `run` performs bounded boot checks.
+
+Session startup verifies cached image hashes. `--no-build` reuses the emulator
+binary explicitly. `--timeout 120` can help while heavy compiler jobs saturate
+the host. A timeout/panic/start failure retains logs and stops the owned worker.
+No launch agent, login item, daemon installation, or ordinary firmware-command
+hook is added.
+
 ## First setup / switch firmware
 
 Install current stable Rust and Python 3.11+ once. Then point at an **existing
@@ -69,20 +103,10 @@ The upright welcome capture SHA-256 is
 `38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd`.
 The image is not committed here and needs to be supplied on another machine.
 
-Prototype validation on 2026-10-23:
-
-- 145 ESP32-S3 library tests passed, including panel corner/offset/mounting and
-  CST9217 packet/IRQ tests (`cargo +stable test --release -p esp32s3 --lib`).
-- Native Clippy passed for the S3 and CLI libraries with warnings denied
-  (`cargo +stable clippy --release -p esp32s3 -p esp32sim --lib -- -D warnings`).
-- Five-second boot capture passed; scripted touch press/release was decoded by
-  the unchanged firmware at raw coordinates (415,330). That run took 5.16s wall.
-- A deliberately short 0.1-second run correctly failed readiness and blank-screen
-  checks, with exit code 1. Artifacts are retained for both successful and failed runs.
-- Python compilation, Git whitespace checks and evidence privacy checks passed.
-- The full upstream pre-push suite has not run. Installing the WASM target failed
-  with `No space left on device`; broader workspace/WASM qualification remains
-  necessary before publishing an upstream PR. This is a locally validated prototype.
+Validation and retained negative results are in
+[`verification.md`](verification.md). The original firmware snapshot is retained
+because it reproduces a real FFat/PSRAM render-worker assertion after pairing
+and route delivery. A welcome screen alone does not qualify navigation.
 
 ## Debug a failure
 
@@ -98,6 +122,77 @@ timeout is 45 seconds; adjust with `--timeout`. `--no-build` skips the increment
 emulator build check when only scripts/inputs change. Script touch coordinates
 match the upright screen. Read `docs/cli.md` for trace, breakpoint and memory
 inspection flags. Use the saved ELF to symbolize addresses.
+
+## BLE bridge and navigation replay
+
+Start a live session, then inspect the **guest-discovered** GATT table or exercise
+notifications and reconnect without an iPhone:
+
+```sh
+python3 tools/bicino_ble.py discover
+python3 tools/bicino_ble.py probe
+```
+
+The peer’s default remains MTU 23. The opt-in raw ATT client negotiates with the
+real guest (512 in the supplied snapshot); it preserves application values,
+CCC subscriptions, ATT errors and notifications. HCI fragments carry larger
+PDUs. `probe` checks INFO notifications on two fresh virtual links; it does not
+claim authentication or physical connectivity.
+
+The optional macOS peripheral proxy exposes the guest’s application service as
+`BikeComputer SIM` through CoreBluetooth:
+
+```sh
+python3 tools/bicino_bridge.py --build-only  # compile/sign only; no Bluetooth access
+python3 tools/bicino_bridge.py              # opt-in Bluetooth peripheral; Ctrl-C to stop
+```
+
+Use the Bicino **Dev** app’s Add Device flow and compare both pairing codes
+before pressing modeled BOOT. The Mac may ask for Bluetooth permission. The
+helper keeps credentials and all protocol handling in the real guest; it does
+not manufacture auth replies or inject an owner key. Physical manufacturer
+advertising data is not cloned; CoreBluetooth publishes the service UUID and a
+distinct local name. Only one central is supported. Guest MTU follows the
+central’s notification limit. Guest errors are returned for acknowledged writes;
+unacknowledged writes retain their usual lack of application acceptance proof.
+Notifications use bounded backpressure; overflow, state loss and transport
+failure stop the helper. Reconnect tears down the guest when the last native
+subscription ends before advertising again. CoreBluetooth has no peripheral
+connection/disconnection delegate: this subscription-based lifecycle **requires
+actual iPhone qualification**. Compound/offset native writes are refused.
+
+`bridge.log` records event metadata, not application payloads. Guest raw ATT
+and firmware logs can include synthetic or real session data; keep them local.
+Do not run the bridge while another task owns the iPhone. The helper has only
+been compiled here; physical discovery, pairing, reconnect, notifications and
+full map transfers remain unproven until the phone is available.
+
+For a reproducible synthetic ownership/navigation scenario, install the optional
+Python `cryptography` package in your own environment, restart to a fresh guest,
+and run:
+
+```sh
+./tools/bicino.py restart
+python3 tools/bicino_scenario.py
+```
+
+The scenario uses a public synthetic owner identity, real P-256/HKDF/HMAC and
+AES-GCM, a modeled BOOT press after rendering the comparison screen, and neutral
+coordinates. It verifies the physical-confirmation requirement before claiming,
+then sends navigation, route, GPS and settings and tries a replayed GPS frame.
+It retains `scenario-result.json` and pairing/navigation screenshots in the live
+session directory. It deliberately fails against the original crashing firmware;
+a failed result is not a bridge or physical-device success. No real credential
+is imported or saved by the client. Successful map-background rendering still
+needs a populated storage backend; SDMMC is tracked by upstream
+[PR #274](https://github.com/mikroverk/esp32sim/pull/274), dependent on #273.
+
+The host attachment design is tracked in
+[upstream #279](https://github.com/mikroverk/esp32sim/issues/279), extending
+[EX200](../../docs/experiments.md#ex200). Apple’s
+[peripheral role guide](https://developer.apple.com/library/archive/documentation/NetworkingInternetWeb/Conceptual/CoreBluetooth_concepts/PerformingCommonPeripheralRoleTasks/PerformingCommonPeripheralRoleTasks.html)
+and [notification backpressure callback](https://developer.apple.com/documentation/corebluetooth/cbperipheralmanagerdelegate/peripheralmanagerisready(toupdatesubscribers:))
+describe the native boundary.
 
 ## Prototype boundary
 
@@ -115,9 +210,9 @@ inspection flags. Use the saved ELF to symbolize addresses.
   modeled.
 - AXP2101, RTC and codec are initialization stubs. Battery `--%` is expected:
   there is no battery measurement. GPS and IMU are absent.
-- Virtual BLE runs the guest NimBLE host and advertises; this is not an iPhone
-  connection, authentication, real RF, or transfer-throughput test. The virtual
-  controller's MTU/pairing limitations still apply.
+- Virtual BLE and the synthetic ATT client run guest NimBLE/authentication,
+  separately from the optional native peripheral helper. Neither a virtual
+  advertisement nor a compiled helper proves an iPhone connection or RF fidelity.
 - Timing, power, brightness, tearing and touch hardware reliability require the
   physical device. A screenshot's existence alone is not a passing boot test.
 

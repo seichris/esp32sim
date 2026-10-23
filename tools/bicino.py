@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -113,7 +114,7 @@ def screen_info(path):
     return {"width": size[0], "height": size[1], "distinct_colors": len(colors), "sha256": sha(path)}
 
 
-def run(args):
+def prepare(args):
     manifest = import_firmware(args.firmware_dir) if args.firmware_dir else json.loads((LOCAL / "config.json").read_text())
     firmware = Path(manifest["directory"])
     for name, digest in manifest["sha256"].items():
@@ -124,9 +125,17 @@ def run(args):
         raise ValueError("Missing or invalid ROM; run tools/bicino.py setup first")
     if not args.no_build:
         build()
+    return manifest, firmware, rom
+
+
+def new_output():
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     output = LOCAL / "runs" / stamp
     output.mkdir(parents=True)
+    return output
+
+
+def command_for(args, firmware, rom, output):
     command = [str(ROOT / "target/release/esp32sim"), "--board", "waveshare-amoled175", "--boot", "rom",
                "--rom", str(rom), "--flash-mb", "16", "--psram-mb", "8",
                "--bootloader", str(firmware / "bootloader.bin"), "--ptable", str(firmware / "partitions.bin"),
@@ -141,6 +150,13 @@ def run(args):
     command += args.emulator_arg
     save(output / "command.json", command)
     (output / "command.txt").write_text(shlex.join(command) + "\n")
+    return command
+
+
+def run(args):
+    manifest, firmware, rom = prepare(args)
+    output = new_output()
+    command = command_for(args, firmware, rom, output)
     start = time.monotonic()
     timed_out = False
     print(f"Capturing {args.seconds:g} emulated seconds; logs: {output}", flush=True)
@@ -158,7 +174,7 @@ def run(args):
         "correct_target": bool(re.search(r"BOOT_META .*target=WAVESHARE_AMOLED_175(?: |$)", serial)),
         "boot_ready": bool(re.search(r"BOOT_STAGE .*event=ready .*name=ready", serial)),
         "ble_advertising": "BLE: Server started, advertising" in serial,
-        "no_guest_panic": not re.search(r"Guru Meditation|panic'ed|abort\(\) was called|Stack smashing|event=safe_mode", serial),
+        "no_guest_panic": not re.search(r"assert failed:|Guru Meditation|panic'ed|abort\(\) was called|Stack smashing|event=safe_mode", serial),
         "bounded_stop": "stop: Halted" in diagnostics,
     }
     screen = None
@@ -187,7 +203,7 @@ def run(args):
     lines += ["", "Files: `serial.log`, `emulator.log`, `result.json`, `command.txt`, `native-gram.png`.", "", "Limitations:"]
     lines += [f"- {item}" for item in limitations]
     (output / "README.md").write_text("\n".join(lines) + "\n")
-    link = LOCAL / f".latest-{stamp}"
+    link = LOCAL / f".latest-{output.name}"
     link.symlink_to(output.relative_to(LOCAL), target_is_directory=True)
     os.replace(link, LOCAL / "latest")
     print(f"{'PASS' if passed else 'FAIL'} in {elapsed:.2f}s: {output / 'README.md'}")
@@ -196,6 +212,9 @@ def run(args):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in {"start", "live", "restart", "stop", "status", "screen", "input"}:
+        from bicino_live import main as live_main
+        return live_main()
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
     setup = sub.add_parser("setup", help="Once: snapshot an existing 1.75 build, cache ROMs and build emulator")
@@ -217,8 +236,8 @@ def main():
             build()
             print(f"Ready: {manifest['directory']}\nRun: {ROOT / 'tools/bicino.py'} run")
             return 0
-        if args.seconds <= 0 or args.timeout <= 0:
-            raise ValueError("seconds and timeout must be positive")
+        if not all(math.isfinite(value) and value > 0 for value in (args.seconds, args.timeout)):
+            raise ValueError("seconds and timeout must be finite and positive")
         return run(args)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"bicino: {error}", file=sys.stderr)
