@@ -15,6 +15,7 @@ import plistlib
 import selectors
 import subprocess
 import sys
+import tempfile
 import time
 
 import bicino
@@ -37,12 +38,34 @@ def build():
             "NSBluetoothPeripheralUsageDescription": "Expose the emulated Bicino firmware for development."}
     plist = plistlib.dumps(info)
     digest = bicino.sha(source)
-    marker = contents / "source.sha256"
-    if binary.is_file() and marker.exists() and marker.read_text().strip() == digest and (contents / "Info.plist").read_bytes() == plist:
-        return binary
-    (contents / "Info.plist").write_bytes(plist)
-    subprocess.run(["swiftc", "-O", str(source), "-o", str(binary)], check=True)
-    subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True, capture_output=True)
+    marker = bicino.LOCAL / "bridge-source.sha256"
+    if binary.is_file() and marker.exists() and marker.read_text().strip() == digest and (contents / "Info.plist").is_file() and (contents / "Info.plist").read_bytes() == plist:
+        verified = subprocess.run(["codesign", "--verify", "--strict", str(app)], capture_output=True)
+        if verified.returncode == 0:
+            return binary
+    # A completed bundle is signed before publication. Keep the cache marker outside:
+    # writing a new Contents file after signing invalidates the resource envelope.
+    with tempfile.TemporaryDirectory(dir=bicino.LOCAL, prefix=".bridge-build-") as temporary:
+        staged = Path(temporary) / "BicinoBridge.app"
+        staged_contents = staged / "Contents"
+        staged_binary = staged_contents / "MacOS/BicinoBridge"
+        staged_binary.parent.mkdir(parents=True)
+        (staged_contents / "Info.plist").write_bytes(plist)
+        subprocess.run(["swiftc", "-O", str(source), "-o", str(staged_binary)], check=True)
+        for command in (["codesign", "--force", "--sign", "-", str(staged)],
+                        ["codesign", "--verify", "--strict", str(staged)]):
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode:
+                raise ValueError(result.stderr.strip() or "macOS helper signature failed")
+        previous = Path(temporary) / "previous.app"
+        if app.exists():
+            os.replace(app, previous)
+        try:
+            os.replace(staged, app)
+        except OSError:
+            if previous.exists():
+                os.replace(previous, app)
+            raise
     marker.write_text(digest + "\n")
     return binary
 
