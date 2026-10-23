@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bicino 1.75 emulator capture. Standard library only; never builds/flashes firmware."""
+"""Bicino 1.75 capture and live workflow. Standard library only; never builds/flashes firmware."""
 import argparse
 import datetime as dt
 import hashlib
@@ -215,7 +215,9 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in {"start", "live", "restart", "stop", "status", "screen", "input"}:
         from bicino_live import main as live_main
         return live_main()
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        "Live commands: start, live, restart, status, screen, input, stop. "
+        "Use COMMAND --help for options. See examples/bicino175/README.md for BLE and navigation replay."))
     sub = parser.add_subparsers(dest="action", required=True)
     setup = sub.add_parser("setup", help="Once: snapshot an existing 1.75 build, cache ROMs and build emulator")
     setup.add_argument("--firmware-dir", type=Path, required=True)
