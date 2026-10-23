@@ -122,7 +122,10 @@ def is_running(state):
 def status(state):
     output = Path(state["output"])
     serial = (output / "serial.log").read_text(errors="replace") if (output / "serial.log").exists() else ""
-    report = dict(state, running=is_running(state), boot_ready="event=ready" in serial,
+    boot = serial[serial.rfind("BOOT_META "):] if "BOOT_META " in serial else ""
+    report = dict(state, running=is_running(state), boot_ready=bool(capture.re.search(r"BOOT_STAGE .*event=ready .*name=ready", boot)),
+                  correct_target=bool(capture.re.search(r"BOOT_META .*target=WAVESHARE_AMOLED_175(?: |$)", boot)),
+                  ble_initialized="BLE: Server started, advertising" in boot,
                   guest_panic=bool(capture.re.search(r"assert failed:|Guru Meditation|panic'ed|abort\(\) was called|event=safe_mode", serial)))
     manifest = output / "manifest.json"
     report["limitations"] = json.loads(manifest.read_text())["limitations"] if manifest.exists() else capture.LIMITATIONS
@@ -219,7 +222,7 @@ def start(args):
                     if report["guest_panic"]:
                         os.kill(state["pid"], signal.SIGTERM)
                         raise ValueError(f"Guest panic; see {output / 'serial.log'}")
-                    if report["boot_ready"]:
+                    if report["boot_ready"] and report["correct_target"] and report["ble_initialized"]:
                         try:
                             with contextlib.closing(WebSocket(args.port)) as ws:
                                 for _ in range(100):

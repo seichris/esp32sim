@@ -274,7 +274,9 @@ impl Peer {
                     self.connected = false;
                     self.advertising = false;
                     self.pending = None;
-                    self.commands.clear(); self.raw = false;
+                    // Keep ordinary/pre-boot scripts across NimBLE's initialization reset.
+                    // Only an already active raw session owns stale ATT work to cancel.
+                    if self.raw { self.commands.clear(); } self.raw = false;
                 }
                 LinkEvent::Data(cid, p) => match cid {
                     4 => self.receive_att(&p),
@@ -572,6 +574,10 @@ mod tests {
         connect(&mut c);
         c.command("read 7").unwrap(); acl(&mut c, &[0x0b,43]);
         assert!(c.drain_log().iter().any(|l| l.starts_with("read handle=0x0007 value=2b")), "fresh link restores ordinary peer mode");
+        c.command("att 0a0700").unwrap(); c.command("write 7 01").unwrap();
+        cmd(&mut c, 0x0c03, &[]);
+        assert_eq!(c.pending_commands(), 0, "reset cancels an active raw session only");
+        assert!(!c.peer.raw);
     }
 
     #[test]
