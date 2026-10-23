@@ -1,3 +1,14 @@
+# Bicino prototype workflow
+
+- For Bicino boot/UI debugging, start with `examples/bicino175/README.md`.
+- `./tools/bicino.py run` reuses an existing firmware snapshot and produces
+  `.local/bicino/latest/{result.json,serial.log,emulator.log,screen.png}`.
+- This is an on-demand tool. Do not add emulator builds to the normal firmware
+  dev loop or required CI without an explicit request. Never hide simulator
+  substitutions or report a simulated screen as physical-device validation.
+- Keep firmware changes in `open-bike-computer`; emulator board support and
+  this capture runner belong in this fork. Do not flash devices from the runner.
+
 # Checks before a pull request
 
 - Run what CI runs, with the newest stable Rust (`rustup update stable`): CI lints and tests with it, so an older local toolchain can pass where CI fails. [CONTRIBUTING.md](CONTRIBUTING.md) lists the commands; [.github/workflows/ci.yml](.github/workflows/ci.yml) is the full set.

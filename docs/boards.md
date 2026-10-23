@@ -215,6 +215,15 @@ The energy-scan firmware and the run recipe: `examples/waveshare-c6-lcd147/`, [e
 
 Selected with `--chip esp32 --board ttgo-tdisplay` (alias `tdisplay`); [esp32.md](esp32.md#the-board---board-ttgo-tdisplay).
 
+## `waveshare-amoled175` — Bicino / Waveshare AMOLED 1.75 prototype
+
+Alias `bicino-175`. CO5300 466x466 with column gap 6 on SPI2; CST9217 single-contact
+input at I2C0 address 0x5A and active-low GPIO21. Presentation follows Bicino's
+mounted orientation, with native GRAM available separately. TCA9554, AXP2101,
+PCF85063A and ES8311 are initialization stubs; no SDMMC, GPS or IMU model.
+Use 16 MB flash and 8 MB PSRAM. The [capture workflow](../examples/bicino175/README.md)
+documents the explicit no-card substitution, validated firmware, and limits.
+
 ## `none` — bare module
 
 No devices; console only. For stock ESP-IDF projects (`examples/hello_world`).
