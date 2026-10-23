@@ -95,13 +95,22 @@ To test the next firmware build without changing repositories:
 /path/to/esp32sim/tools/bicino.py run --firmware-dir /path/to/build/WAVESHARE_AMOLED_175
 ```
 
-The validated input is `seichris/open-bike-computer` commit
+The original boot input is `seichris/open-bike-computer` commit
 `03ea4cb4796dc519d70cd234080ddedfb5fbad75`, embedded version 0.3.4/build 104.
 Its firmware SHA-256 is
 `883a0e7ba96cf9180d3773e5a6bdf5601f9464ed63d8aab982a798abbf076d76`.
 The upright welcome capture SHA-256 is
 `38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd`.
 The image is not committed here and needs to be supplied on another machine.
+
+The navigation replay uses `seichris/open-bike-computer` commit
+`50aaf9b134ae1de88f1769fcb7742cbea88c7f69` from
+[firmware PR #632](https://github.com/seichris/open-bike-computer/pull/632).
+Its firmware SHA-256 is
+`5be95483ca387d6ac60ce5351cee90b1e818758033c6fa449dd8cfdcaab0eef5`.
+It fixes the FFat render-worker stack assertion. The cached setup on this machine
+now selects that snapshot; both old and fixed inputs remain available locally.
+Neither image has been flashed as part of this workflow.
 
 Validation and retained negative results are in
 [`verification.md`](verification.md). The original firmware snapshot is retained
@@ -178,8 +187,11 @@ python3 tools/bicino_scenario.py
 
 The scenario uses a public synthetic owner identity, real P-256/HKDF/HMAC and
 AES-GCM, a modeled BOOT press after rendering the comparison screen, and neutral
-coordinates. It verifies the physical-confirmation requirement before claiming,
-then sends navigation, route, GPS and settings and tries a replayed GPS frame.
+coordinates. It waits in modeled time and verifies the physical-confirmation requirement
+before claiming, then sends navigation, route, GPS and settings and rejects a
+replayed GPS frame. It verifies encrypted notifications on two fresh authenticated
+sessions, cycles a configured page through modeled BOOT, and checks for one boot
+with no guest panic.
 It retains `scenario-result.json` and pairing/navigation screenshots in the live
 session directory. It deliberately fails against the original crashing firmware;
 a failed result is not a bridge or physical-device success. No real credential
@@ -208,7 +220,9 @@ describe the native boundary.
 - CST9217 accepts one scripted contact, with its real packet format and GPIO21
   interrupt. TCA9554 reset wiring, analog touch behavior and multi-touch are not
   modeled.
-- AXP2101, RTC and codec are initialization stubs. Battery `--%` is expected:
+- AXP2101, RTC and codec are initialization stubs. The AXP2101 PWR status
+  acknowledgement is W1C so clearing IRQs cannot synthesize a button press;
+  PWR input itself is not modeled. BOOT is the explicit pairing input. Battery `--%` is expected:
   there is no battery measurement. GPS and IMU are absent.
 - Virtual BLE and the synthetic ATT client run guest NimBLE/authentication,
   separately from the optional native peripheral helper. Neither a virtual
