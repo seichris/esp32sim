@@ -1,8 +1,62 @@
-# Bicino workflow verification — 2026-10-24
+# Bicino workflow verification — 2026-10-24, updated 2026-10-27
 
-This is native emulator evidence. The macOS peripheral helper was compiled and
-signed, but the physical iPhone remained unavailable at the user's request.
-No board was flashed or physically tested.
+The initial October 24 checks below use the native emulator and a synthetic
+client. The October 26–27 follow-up also uses a real USB-connected iPhone and
+the Mac's CoreBluetooth radio. No board was flashed. A separate existing-image
+physical-board check is scoped explicitly below.
+
+## iPhone and physical-board follow-up
+
+Emulator Rust remains `2c055eb7bd3e55bfce44a32a4361ba9feccca7d5`; firmware
+remains `50aaf9b1` with the SHA-256 below. The installed Bicino Dev app reports
+1.11 (30). The native helper required two host fixes: launch its signed bundle
+through LaunchServices from a verified user cache, using private temporary
+FIFOs; drain complete JSON lines from unbuffered descriptor reads instead of
+mixing `select` with buffered `readline`. Coalesced and partial events now drain
+without waiting for another descriptor-readiness event; oversized frames fail.
+No guest authentication handler or credential was substituted.
+
+The real iPhone passed service discovery, matching-code registration with
+explicit modeled BOOT input, protected GPS/settings/navigation, encrypted
+notifications, reconnect after bridge restart, and reconnect after cold app
+relaunch. A selected route delivered 26 points. The phone and guest display
+showed matching 21 m guidance; the guest still displayed **No microSD card**.
+A mid-navigation checkpoint records `authOK=3 nav=4 route=4 gps=1715 settings=20`,
+3,455 native notifications and no guest panic. Before intentional deregistration,
+the counters reached `authOK=4 nav=6 route=6 gps=2010 settings=26 rejectAuth=0`.
+Deregistration restarted the guest unclaimed and removed the temporary phone
+record. The phone briefly reported an unconfirmed disconnect before completing
+that verification. Navigation was stopped; no workout was started.
+
+Retained failures: the original direct-child launch reported Bluetooth
+unauthorized; launching from a protected workspace path failed at spawn.
+Two slow-confirmation iPhone attempts failed before the final framing fix.
+A separate synthetic run isolates a firmware deadline failure: with
+`--confirmation-delay 13`, the physical-confirmation gate passes, ownership is
+registered, then the guest logs **Disconnecting unauthenticated client after
+timeout** before session authentication. The default one-second control still
+passes all 22 checks. At `50aaf9b1`, `Event::Paired` clears the pairing-active
+flag, reducing the allowance from 120 to 12 seconds while the deadline remains
+anchored to the original connection. This is separate from the FFat fix;
+neither proxy timing nor a firmware fix is claimed to resolve it here.
+
+The physical 1.75-inch board separately reconnected to the same iPhone. Its
+authenticated app status reports `08c05ea6ff46`, ordinary target
+`WAVESHARE_AMOLED_175`, and storage **sdmmc**. The operator confirmed matching
+35 m guidance on its real screen. This is an existing-image BLE/navigation
+smoke test, not physical qualification of PR #632 or FFat/radio memory margins.
+No serial port was opened, board reset requested, firmware flashed or map
+replaced. Its firmware reports remote debugging unsupported. The diagnostics
+broker has no fresh phone observation, so old retained data was not used as
+evidence of this test.
+
+Python compilation, native helper build/signature and final launch/shutdown
+checks pass. An initial launcher-only smoke omitted the configure message and
+timed out waiting for Bluetooth; the corrected configured smoke passes.
+Both Clippy commands and the full 1,047-test workspace suite pass again on
+stable 1.99.1. Rust and all goldens remain unchanged. Commands, hashes, scoped
+outcomes and privacy omissions are in the
+[iPhone follow-up receipt](../../docs/evidence/bicino-development/iphone-followup.json).
 
 ## Inputs and reproducibility
 
@@ -131,10 +185,10 @@ are not timing clearance; final measurements use frozen binary copies.
 
 ## Remaining qualification
 
-The CoreBluetooth helper remains experimental until a dedicated iPhone run
-verifies scan visibility, matching-code registration, protected commands,
-notifications and reconnect. Its subscription-based teardown and compound-write
-limits remain explicit. The user requested leaving that phone untouched.
+The CoreBluetooth helper remains experimental beyond the bounded iPhone run
+above. Its subscription-based teardown and compound-write limits remain
+explicit. Longer human confirmation fails in the supplied firmware; full map
+transfer, broad iOS/central compatibility and radio coexistence are unqualified.
 
 SDMMC is absent on S3. The runner explicitly substitutes Storage::initSD with
 ESP_FAIL and runs real FFat. No SD map image or full background-map rendering is

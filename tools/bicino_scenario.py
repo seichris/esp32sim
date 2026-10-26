@@ -5,6 +5,7 @@ Requires the optional Python `cryptography` package. Never targets a physical bo
 never imports an owner's credential, and never skips the firmware's pairing checks.
 The only simulated confirmation is an explicit GPIO0 press after the pairing UI.
 """
+import argparse
 import contextlib
 import hashlib
 import hmac
@@ -20,6 +21,12 @@ from bicino_live import write_png
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--confirmation-delay", type=float, default=1,
+                        help="Modeled seconds before confirming the code (0 to 100; default 1)")
+    args = parser.parse_args()
+    if not 0 <= args.confirmation_delay <= 100:
+        parser.error("--confirmation-delay must be between 0 and 100 modeled seconds")
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -95,7 +102,7 @@ def main():
             comparison = int.from_bytes(hmac.new(key, b"compare|" + transcript, hashlib.sha256).digest()[:4], "big") % 1000000
             print(f"Synthetic comparison code: {comparison:06d}", flush=True)
             confirm = f"CONFIRM|{owner}|{mac(b'claim|' + transcript)}|{b'Sim test'.hex()}"
-            advance_guest(1)
+            advance_guest(args.confirmation_delay)
             snapshot("pairing-code")
             check("confirmation_required", auth_send(confirm) == "ERROR|physical_confirmation_required")
             # Real UI/render and button handling run; only the input source is simulated.
@@ -174,6 +181,7 @@ def main():
             completed = True
         finally:
             report = {"schema": 1, "passed": completed and bool(checks) and all(checks.values()), "checks": checks,
+                      "confirmation_delay_seconds": args.confirmation_delay,
                       "physical_iphone": False, "physical_board": False,
                       "sd_maps": False, "note": "Synthetic ATT client; real guest ownership handlers. SD failure substitution and FFat fallback remain."}
             (output / "scenario-result.json").write_text(json.dumps(report, indent=2) + "\n")

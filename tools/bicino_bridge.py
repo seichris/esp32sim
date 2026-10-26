@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import plistlib
 import selectors
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -70,6 +72,70 @@ def build():
     return binary
 
 
+@contextlib.contextmanager
+def native_helper(binary, output, log):
+    # LaunchServices gives CoreBluetooth the helper's own app identity. A direct
+    # child inherits the terminal/agent's Bluetooth permission; launchd also
+    # cannot start an app or open its streams inside protected Documents paths.
+    source = binary.parents[2]
+    cache = Path.home() / "Library/Caches/com.bicino.esp32sim.bridge" / (bicino.sha(binary) + "-" + bicino.sha(source / "Contents/Info.plist")[:16])
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    app = cache / source.name
+    if not app.exists():
+        with tempfile.TemporaryDirectory(dir=cache, prefix=".publish-") as staging:
+            staged = Path(staging) / source.name
+            shutil.copytree(source, staged)
+            subprocess.run(["codesign", "--verify", "--strict", str(staged)], check=True, capture_output=True)
+            os.replace(staged, app)
+    if bicino.sha(app / "Contents/MacOS/BicinoBridge") != bicino.sha(binary) or (app / "Contents/Info.plist").read_bytes() != (source / "Contents/Info.plist").read_bytes():
+        raise ValueError("Cached native helper does not match the built bundle")
+    subprocess.run(["codesign", "--verify", "--strict", str(app)], check=True, capture_output=True)
+    # Private FIFOs retain the existing JSON protocol without a TCP listener or
+    # an installed background service. Both launchd and the helper can open
+    # these paths without granting the app access to the firmware workspace.
+    with tempfile.TemporaryDirectory(prefix="bicino-ble-") as temporary:
+        incoming, outgoing, native_log = (Path(temporary) / name for name in ("input", "output", "stderr"))
+        for path in (incoming, outgoing):
+            os.mkfifo(path, 0o600)
+        with os.fdopen(os.open(incoming, os.O_RDWR), "w", buffering=1) as writer, os.fdopen(os.open(outgoing, os.O_RDWR), "rb", buffering=0) as reader:
+            process = subprocess.Popen(["open", "-W", "-n", "-a", str(app), "--stdin", str(incoming), "--stdout", str(outgoing), "--stderr", str(native_log)], stdout=subprocess.DEVNULL, stderr=log)
+            process.stdin, process.stdout, process.native_pid = writer, reader, None
+            try:
+                yield process
+            finally:
+                with contextlib.suppress(OSError, ValueError):
+                    writer.write('{"t":"shutdown"}\n'); writer.flush()
+                writer.close()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    if process.native_pid is not None:
+                        with contextlib.suppress(ProcessLookupError):
+                            os.kill(process.native_pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill(); process.wait()
+                if native_log.exists():
+                    shutil.copyfile(native_log, output / "bridge-native.log")
+
+
+def native_messages(selector, pending):
+    # TextIO.readline() can prefetch several events, leaving later lines in a
+    # user-space buffer after the descriptor stops being readable. Drain every
+    # complete JSON line from each unbuffered read, including coalesced writes.
+    for key, _ in selector.select(0.05):
+        chunk = os.read(key.fd, 65536)
+        if not chunk:
+            raise EOFError("Native helper transport closed")
+        pending.extend(chunk)
+        if len(pending) > 131072:
+            raise ValueError("Native helper message exceeds transport limit")
+        while (end := pending.find(b"\n")) >= 0:
+            line = bytes(pending[:end]); del pending[:end + 1]
+            yield json.loads(line)
+
+
 def run(binary):
     with (bicino.LOCAL / "ble.lock").open("w") as lock:
         try:
@@ -84,14 +150,16 @@ def run(binary):
             chars = {c["handle"]: c for c in service["characteristics"]}
             output = Path(guest.state["output"])
             bicino.save(output / "bridge-gatt.json", {"mtu": guest.mtu, "service": service})
-            with (output / "bridge.log").open("a", buffering=1) as log:
-                process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
+            with (output / "bridge.log").open("a", buffering=1) as log, native_helper(binary, output, log) as process:
+                started = time.monotonic()
+                def record(message):
+                    log.write(json.dumps({**message, "host_elapsed_s": round(time.monotonic() - started, 6)}) + "\n")
                 def send(message):
                     process.stdin.write(json.dumps(message) + "\n")
                     process.stdin.flush()
                 def notify(handle, value):
                     send({"t": "notify", "handle": handle, "value": value.hex()})
-                    log.write(json.dumps({"event": "notification", "handle": handle, "bytes": len(value)}) + "\n")
+                    record({"event": "notification", "handle": handle, "bytes": len(value)})
                 guest.notification = notify
                 selector = selectors.DefaultSelector()
                 selector.register(process.stdout, selectors.EVENT_READ)
@@ -99,14 +167,17 @@ def run(binary):
                     send({"t": "configure", "service": service, "name": "BikeComputer SIM"})
                     print(f"Bridge starting; approve macOS Bluetooth access if prompted. Log: {output / 'bridge.log'}", flush=True)
                     subscribed = set()
+                    native_pending = bytearray()
                     while process.poll() is None:
-                        for key, _ in selector.select(0.05):
-                            line = key.fileobj.readline()
-                            if not line:
-                                break
-                            message = json.loads(line)
+                        for message in native_messages(selector, native_pending):
                             kind = message.get("t")
-                            log.write(json.dumps({k: v for k, v in message.items() if k not in {"value", "central"}}) + "\n")
+                            record({k: v for k, v in message.items() if k not in {"value", "central", "pid"}})
+                            if kind == "started":
+                                pid = message.get("pid")
+                                if not isinstance(pid, int) or pid < 2:
+                                    raise ValueError("Native helper returned an invalid process identity")
+                                process.native_pid = pid
+                                continue
                             if kind in {"bluetooth", "advertising", "fatal"}:
                                 print(json.dumps(message), flush=True)
                             if kind == "fatal":
@@ -139,10 +210,11 @@ def run(binary):
                                 reply["error"] = error.code
                             except (OSError, EOFError, ValueError, TimeoutError) as error:
                                 reply["error"] = 0x0e
-                                log.write(json.dumps({"event": "request-failed", "message": str(error)}) + "\n")
+                                record({"event": "request-failed", "message": str(error)})
                                 if kind in {"subscribe", "unsubscribe"}:
                                     raise
                             if kind in {"read", "write"}:
+                                record({"event": "reply", "id": reply["id"], "error": reply["error"]})
                                 send(reply)
                         if guest.connected:
                             try:
@@ -150,17 +222,9 @@ def run(binary):
                                 raise ValueError(f"Unexpected ATT response {unexpected.hex()}")
                             except TimeoutError:
                                 pass
-                    if process.wait() != 0:
-                        raise ValueError("CoreBluetooth helper exited unsuccessfully; see bridge.log")
+                    raise ValueError("CoreBluetooth helper exited unexpectedly; see bridge.log")
                 finally:
                     selector.close()
-                    if process.poll() is None:
-                        process.terminate()
-                    try:
-                        process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        process.kill(); process.wait()
-                    process.stdin.close(); process.stdout.close()
 
 
 def main():

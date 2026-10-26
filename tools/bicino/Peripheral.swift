@@ -104,7 +104,8 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
         }
         nextID += 1; pending[nextID] = (request, Date())
         emit(["t": kind, "id": nextID, "handle": handle, "offset": request.offset,
-              "value": hex(request.value ?? Data()), "mtu": request.central.maximumUpdateValueLength + 3])
+              "value": hex(request.value ?? Data()), "bytes": request.value?.count ?? 0,
+              "mtu": request.central.maximumUpdateValueLength + 3])
     }
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) { self.request(request, kind: "read") }
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
@@ -138,11 +139,15 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
             let code = message["error"] as? Int ?? 0
             if let value = message["value"] as? String { request.value = unhex(value) }
             manager.respond(to: request, withResult: CBATTError.Code(rawValue: code) ?? .unlikelyError)
+            emit(["t": "replied", "id": id, "error": code])
         case "notify":
             guard let handle = message["handle"] as? Int, let text = message["value"] as? String, let data = unhex(text) else { fatal("invalid notification"); return }
             guard notifications.count < 128 else { fatal("notification queue overflow"); return }
             notifications.append((handle, data)); flush()
         case "disconnected": advertise()
+        case "shutdown":
+            manager?.stopAdvertising(); manager?.removeAllServices()
+            exit(0)
         case "fatal": fatal(message["message"] as? String ?? "guest bridge stopped")
         default: break
         }
@@ -160,6 +165,7 @@ final class Peripheral: NSObject, CBPeripheralManagerDelegate {
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) { flush() }
 }
 
+emit(["t": "started", "pid": ProcessInfo.processInfo.processIdentifier])
 let peripheral = Peripheral()
 DispatchQueue.global().async {
     while let line = readLine() {

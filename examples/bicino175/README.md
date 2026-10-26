@@ -157,7 +157,20 @@ python3 tools/bicino_bridge.py              # opt-in Bluetooth peripheral; Ctrl-
 ```
 
 Use the Bicino **Dev** app’s Add Device flow and compare both pairing codes
-before pressing modeled BOOT. The Mac may ask for Bluetooth permission. The
+before clicking the yellow **BOOT (GPIO 0)** button below the browser screen.
+This reaches the guest firmware's normal confirmation handler. The simulator
+is a separate bike computer, not a mirror of a USB-connected physical board;
+the phone sends navigation to its selected BLE device. A fresh CLI restart
+discards the simulator's pairing, so deregister its temporary phone record
+before restarting or forget that record afterward.
+
+The Mac may ask for Bluetooth permission for **Bicino Emulator Bridge**. The
+runner launches its verified app through LaunchServices from a content-addressed
+user cache, with private temporary FIFOs for the JSON transport. This avoids
+depending on the calling terminal's Bluetooth permission or granting access to
+the firmware workspace. It installs no background service. iOS can cache the
+Mac's system name instead of the requested local name; check the comparison code
+on both screens before confirming the intended device. The
 helper keeps credentials and all protocol handling in the real guest; it does
 not manufacture auth replies or inject an owner key. Physical manufacturer
 advertising data is not cloned; CoreBluetooth publishes the service UUID and a
@@ -167,14 +180,20 @@ unacknowledged writes retain their usual lack of application acceptance proof.
 Notifications use bounded backpressure; overflow, state loss and transport
 failure stop the helper. Reconnect tears down the guest when the last native
 subscription ends before advertising again. CoreBluetooth has no peripheral
-connection/disconnection delegate: this subscription-based lifecycle **requires
-actual iPhone qualification**. Compound/offset native writes are refused.
+connection/disconnection delegate: this subscription-based lifecycle has passed
+the bounded iPhone checks below, not arbitrary central behavior.
+Compound/offset native writes are refused.
 
 `bridge.log` records event metadata, not application payloads. Guest raw ATT
 and firmware logs can include synthetic or real session data; keep them local.
-Do not run the bridge while another task owns the iPhone. The helper has only
-been compiled here; physical discovery, pairing, reconnect, notifications and
-full map transfers remain unproven until the phone is available.
+Do not run the bridge while another task owns the iPhone. An actual iPhone run
+passed discovery, matching-code registration, protected settings/GPS/navigation,
+bridge and app restart recovery, and deregistration. Full map transfers and SD
+background rendering remain unproven. The supplied firmware has a separate
+pairing deadline bug: confirmation after 13 modeled seconds registers ownership
+then disconnects before authentication. Prompt confirmation passes; this is
+recorded as a firmware failure, not hidden by the proxy. See
+[`verification.md`](verification.md) for the exact scope.
 
 For a reproducible synthetic ownership/navigation scenario, install the optional
 Python `cryptography` package in your own environment, restart to a fresh guest,
@@ -184,6 +203,10 @@ and run:
 ./tools/bicino.py restart
 python3 tools/bicino_scenario.py
 ```
+
+To reproduce the supplied firmware's longer-confirmation failure, restart to a
+fresh guest and run `python3 tools/bicino_scenario.py --confirmation-delay 13`.
+The flag uses modeled seconds; it does not bypass the physical-confirmation gate.
 
 The scenario uses a public synthetic owner identity, real P-256/HKDF/HMAC and
 AES-GCM, a modeled BOOT press after rendering the comparison screen, and neutral
