@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "rust_revision": "a09103c42edf786b40bc05f42c9f99024ea38f2e",
+  "rust": "1.99.1",
+  "workspace_passed": 1047,
+  "workspace_failed": 0,
+  "s3_library_passed": 146,
+  "checks": [
+    {
+      "name": "build-workspace",
+      "command": "cargo +stable build --release --workspace",
+      "returncode": 0
+    },
+    {
+      "name": "virtual-quantum",
+      "command": "ESP32SIM_VQ_NATIVE=1 cargo +stable test --release -p esp32s3 --test machine --test virtual_stops",
+      "returncode": 0
+    },
+    {
+      "name": "wasm-build",
+      "command": "tools/wasm-build.sh",
+      "returncode": 0
+    },
+    {
+      "name": "wasm-sections",
+      "command": "node tools/check-wasm-sections.mjs web/wasm/esp32sim.wasm",
+      "returncode": 0
+    },
+    {
+      "name": "wasm-demos",
+      "command": "node tools/wasm-test.mjs hello c3-hello c6-hello c6-energy-scan c6-contiki c6-contiki-net c6-rpl-net panel tdisplay-prices",
+      "returncode": 0
+    },
+    {
+      "name": "timing-abi",
+      "command": "node wasm/tests/timing-api.mjs web/wasm/esp32sim.wasm",
+      "returncode": 0
+    },
+    {
+      "name": "ble-abi",
+      "command": "node wasm/tests/ble-api.mjs web/wasm/esp32sim.wasm web/wasm/fw/public .local/roms/esp32c3_rev3_rom.elf",
+      "returncode": 0
+    },
+    {
+      "name": "ble-connection",
+      "command": "node wasm/tests/ble-connection.mjs web/wasm/esp32sim.wasm web/wasm/fw/public .local/roms/esp32c3_rev3_rom.elf",
+      "returncode": 0
+    },
+    {
+      "name": "worker-pacing",
+      "command": "node tools/worker-pacing-test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "worker-channel",
+      "command": "node tools/worker-channel-test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "touch",
+      "command": "node --test tools/touch-input-test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "stopwatch",
+      "command": "node --test tools/stopwatch-ui-test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "wasm-policy",
+      "command": "node --test tools/wasm-build-policy.test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "browser-benchmark",
+      "command": "node --test tools/browser-benchmark/*.test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "browser-python",
+      "command": "python3 -m unittest discover -s tools/browser-benchmark -p 'test_*.py'",
+      "returncode": 0
+    },
+    {
+      "name": "jit-diff",
+      "command": "tools/wasm-jit-test.sh",
+      "returncode": 0
+    },
+    {
+      "name": "profile-build",
+      "command": ". ./tools/wasm-rustflags.sh && cargo +stable build --release --target wasm32-unknown-unknown -p esp32sim-wasm --features jit-profile,cpu-profile",
+      "returncode": 0
+    },
+    {
+      "name": "aarch64",
+      "command": "cargo +stable test --release -p xtensa-lx7",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-tests",
+      "command": "node --test docs/evidence/perf-x5-2026-09-22/verify-results.test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-verify",
+      "command": "node docs/evidence/perf-x5-2026-09-22/verify-results.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-m1-before-after/tests",
+      "command": "node --test docs/evidence/perf-x5-2026-09-22/m1-before-after/verify.test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-m1-before-after/verify",
+      "command": "node docs/evidence/perf-x5-2026-09-22/m1-before-after/verify.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-historical-before-after/tests",
+      "command": "node --test docs/evidence/perf-x5-2026-09-22/historical-before-after/verify.test.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "receipt-historical-before-after/verify",
+      "command": "node docs/evidence/perf-x5-2026-09-22/historical-before-after/verify.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "native-clippy",
+      "command": "cargo +stable clippy --workspace --all-targets -- -D warnings",
+      "returncode": 0
+    },
+    {
+      "name": "wasm-clippy",
+      "command": "cargo +stable clippy --release --target wasm32-unknown-unknown -p esp32sim-wasm --features jit-tests -- -D warnings",
+      "returncode": 0
+    },
+    {
+      "name": "workspace-tests",
+      "command": "ESP32SIM_ROM_DIR=.local/roms cargo +stable test --release --workspace -- --include-ignored --skip external_",
+      "returncode": 0
+    },
+    {
+      "name": "privacy",
+      "command": "node tools/check-evidence-privacy.mjs",
+      "returncode": 0
+    },
+    {
+      "name": "python",
+      "command": "python3 -m py_compile tools/bicino*.py",
+      "returncode": 0
+    },
+    {
+      "name": "macos-helper",
+      "command": "python3 tools/bicino_bridge.py --build-only",
+      "returncode": 0
+    }
+  ],
+  "goldens_regenerated": false,
+  "firmware_check": {
+    "repository": "seichris/open-bike-computer",
+    "revision": "50aaf9b134ae1de88f1769fcb7742cbea88c7f69",
+    "locked_build_environment": "WAVESHARE_AMOLED_175",
+    "locked_build_passed": true,
+    "clean_host_checks_passed": 40,
+    "physical_device_used": false
+  },
+  "limits": [
+    "macOS arm64 local CI-equivalent checks, not a remote GitHub CI result.",
+    "No physical iPhone, physical board, SD maps or loaded-map/RF qualification."
+  ],
+  "macos_helper": {
+    "source_sha256": {
+      "tools/bicino_bridge.py": "9a4aa0d9fcfa0a022239c834069b933e5bcd7be7f799d787fdda46e79d618e35",
+      "tools/bicino/Peripheral.swift": "0d6ee6893161b3c7bc5814ed4a2de348a6c689411dddf39a5bd18bc7878c9c62"
+    },
+    "fresh_and_cached_build_passed": true,
+    "codesign_verify_strict_passed": true,
+    "damaged_signature_cache_repair_passed": true,
+    "bluetooth_activated": false
+  }
+}

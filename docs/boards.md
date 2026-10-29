@@ -247,6 +247,16 @@ I2S0 RX DMA into internal DRAM with a fixed approximate 10 FPS cadence.
 JPEG+PSRAM CameraWebServer, adjustable FPS and silicon/PCLK timing are unsupported.
 See [the fixture and scope](esp32.md#the-camera---board-ai-thinker-cam).
 
+## `waveshare-amoled175` — Bicino / Waveshare AMOLED 1.75 prototype
+
+Alias `bicino-175`. CO5300 466x466 with column gap 6 on SPI2; CST9217 single-contact
+input at I2C0 address 0x5A and active-low GPIO11. Presentation follows Bicino's
+mounted orientation, with native GRAM available separately. TCA9554, AXP2101,
+PCF85063A and ES8311 are initialization stubs; no GPS or IMU model. The microSD
+socket is one-bit SDMMC on CLK 2, CMD 1 and D0 3 (D3 41 unused) and takes `--sd`.
+Use 16 MB flash and 8 MB PSRAM. The [capture workflow](../examples/bicino175/README.md)
+documents its storage modes, validated firmware, and limits.
+
 ## `none` — bare module
 
 No devices; console only. For stock ESP-IDF projects (`examples/hello_world`).

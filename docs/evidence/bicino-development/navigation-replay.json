@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "passed": true,
+  "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+  },
+  "physical_iphone": false,
+  "physical_board": false,
+  "sd_maps": false,
+  "note": "Synthetic ATT client; real guest ownership handlers. SD failure substitution and FFat fallback remain.",
+  "emulator_rust_revision": "a09103c42edf786b40bc05f42c9f99024ea38f2e",
+  "scenario_revision": "06cc54ed26ed65a242128e8759e7248b3295cf47",
+  "firmware_repository": "seichris/open-bike-computer",
+  "firmware_revision": "50aaf9b134ae1de88f1769fcb7742cbea88c7f69",
+  "firmware_sha256": {
+    "bootloader.bin": "83a06f27135bc674db41f21b5bed122bf659bbf0a2e3ee7e45654245741cafe9",
+    "partitions.bin": "7dd5955a3be2f162301cd46e83ba8d6ce83a106e47f49308937b71e3fb9fc7ce",
+    "firmware.bin": "5be95483ca387d6ac60ce5351cee90b1e818758033c6fa449dd8cfdcaab0eef5",
+    "firmware.elf": "6ac75510502275f448bedd37cc80b10bafe7ba9506d91c50b78175dfbc6a7238"
+  },
+  "boot_metadata": {
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "104",
+    "git": "50aaf9b134ae1de88f1769fcb7742cbea88c7f69",
+    "built": "2026-10-23T16:01:33Z",
+    "fingerprint": "6E0C0E72"
+  },
+  "artifacts": {
+    "serial.log": {
+      "sha256": "f56e8b0f2f773d335952bb33728cd01a6d7f3ea834a9b0a1cc662d75e5b72759",
+      "bytes": 125690
+    },
+    "emulator.log": {
+      "sha256": "a12e10bed198d3e1becee01539ed0b443460a4885c6e4e53683c96521ccc3a83",
+      "bytes": 8168
+    },
+    "pairing-code.png": {
+      "sha256": "43c38fbddf7f36e89c4cf5429d945a2b30177e28ebd39b03a2fbee3cbbf01b8a",
+      "bytes": 8275
+    },
+    "map-no-data.png": {
+      "sha256": "68461cda00bbb38512baa7d5ce10aa030b1ee2c590308f78947bb377ac8bda65",
+      "bytes": 7767
+    },
+    "page-after-button.png": {
+      "sha256": "a161fd6fbe543d7e69d6f6cb9d40c9908dfa9ecb179a8e298d487706efe00215",
+      "bytes": 7096
+    },
+    "reconnected.png": {
+      "sha256": "a161fd6fbe543d7e69d6f6cb9d40c9908dfa9ecb179a8e298d487706efe00215",
+      "bytes": 7096
+    }
+  },
+  "privacy": "Raw logs and images stay in ignored local storage. Only hashes/lengths and synthetic pass/fail facts retained; no owner/device identity, location trace or session key is published.",
+  "screen_observations": [
+    "Pairing code visually matches independent client calculation.",
+    "No microSD card state plus marker and 120 m navigation overlay.",
+    "Modeled BOOT changes MAP_GUIDANCE to RIDESTATS."
+  ]
+}

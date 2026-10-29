@@ -1,3 +1,22 @@
+# Bicino prototype workflow
+
+- For Bicino boot/UI debugging, start with `examples/bicino175/README.md`.
+- `./tools/bicino.py run` reuses an existing firmware snapshot and produces
+  `.local/bicino/latest/{result.json,serial.log,emulator.log,screen.png}`.
+- `./tools/bicino.py start` serves the live screen/touch at `http://127.0.0.1:17500/`;
+  `status`, `screen`, `input`, `restart` and `stop` control its owned session.
+  Logs and manifests stay in `.local/bicino/live/`. Read `result.json` for bounded
+  runs and `scenario-result.json` for navigation; never infer success from a PNG.
+- Storage is explicit (`storage.mode`): the default substitutes `Storage::initSD`,
+  `--full-storage-probe` is an empty socket, and `--sd-image` puts a card image
+  (`tools/bicino_sdcard.py`) behind the real SDMMC driver. Keep no-card and
+  populated-SD results apart.
+- This is an on-demand tool. Do not add emulator builds to the normal firmware
+  dev loop or required CI without an explicit request. Never hide simulator
+  substitutions or report a simulated screen as physical-device validation.
+- Keep firmware changes in `open-bike-computer`; emulator board support and
+  this capture runner belong in this fork. Do not flash devices from the runner.
+
 # Checks before a pull request
 
 - Run what CI runs, with the newest stable Rust (`rustup update stable`): CI lints and tests with it, so an older local toolchain can pass where CI fails. [CONTRIBUTING.md](CONTRIBUTING.md) lists the commands; [.github/workflows/ci.yml](.github/workflows/ci.yml) is the full set.

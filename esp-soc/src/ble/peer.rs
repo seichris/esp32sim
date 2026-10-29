@@ -126,6 +126,7 @@ fn uuid(b: &[u8]) -> String {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Request {
+    Raw,
     Services,
     Characteristics,
     Descriptors,
@@ -135,6 +136,7 @@ enum Request {
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
+    Att(Vec<u8>),
     Connect,
     CentralStop,
     Disconnect,
@@ -153,6 +155,8 @@ impl std::str::FromStr for Command {
             ["disconnect"] => return Ok(Self::Disconnect),
             ["discover"] => return Ok(Self::Discover),
             ["read-uuid", service, characteristic] => return Ok(Self::ReadUuid(parse_uuid(service)?, parse_uuid(characteristic)?)),
+            ["att", data] => return (data.len() <= 1034).then(|| hex_bytes(data)).flatten().filter(|p| !p.is_empty())
+                .map(Self::Att).ok_or("ATT requires 1..517 hexadecimal bytes".into()),
             ["read" | "subscribe", _] | ["write", _, _] => {}
             _ => return Err("expected connect, central-stop, disconnect, discover, read HANDLE, read-uuid SERVICE CHARACTERISTIC, write HANDLE HEX, subscribe CCC_HANDLE".into()),
         }
@@ -251,6 +255,7 @@ pub struct Peer {
     pending: Option<Request>,
     discovery_start: u16,
     value: Vec<u8>,
+    raw: bool,
     /// The devices around (`set_nearby`), and the guest's scan, active or passive, while it runs.
     nearby: Vec<Nearby>,
     scanning: Option<bool>,
@@ -268,6 +273,7 @@ impl Peer {
             pending: None,
             discovery_start: 1,
             value: vec![100],
+            raw: false,
             nearby: Vec::new(),
             scanning: None,
         }
@@ -292,7 +298,14 @@ impl Peer {
     }
     pub fn command(&mut self, command: &str) -> Result<(), String> {
         let command = command.parse()?;
-        if matches!(command, Command::CentralStop | Command::Disconnect | Command::ReadUuid(..)) { return Err("central-stop/disconnect/read-uuid requires full BLE".into()) }
+        if matches!(command, Command::CentralStop | Command::ReadUuid(..)) { return Err("central-stop/read-uuid requires full BLE".into()) }
+        if command == Command::Disconnect {
+            if !self.connected { return Err("central is not connected".into()) }
+            self.commands.clear(); self.pending = None;
+            self.link.borrow_mut().to_controller.push_back(LinkAction::Disconnect);
+            return Ok(());
+        }
+        if self.commands.len() >= 128 { return Err("BLE command queue is full".into()) }
         self.commands.push_back(command);
         self.run_commands();
         Ok(())
@@ -311,6 +324,12 @@ impl Peer {
             if !self.connected || self.guest_central { break; }
             match self.commands.pop_front().unwrap() {
                 Command::Connect | Command::CentralStop | Command::Disconnect | Command::ReadUuid(..) => unreachable!(),
+                Command::Att(p) => {
+                    self.raw = true;
+                    // Commands and confirmations have no ATT response. Requests serialize.
+                    if p[0] & 0x40 == 0 && p[0] != 0x1e { self.pending = Some(Request::Raw); }
+                    self.att(&p);
+                }
                 Command::Discover => self.discover(Request::Services, 1),
                 Command::Read(handle) => {
                     self.pending = Some(Request::Read(handle));
@@ -358,6 +377,7 @@ impl Peer {
                     self.connecting = false;
                     self.connected = false;
                     self.pending = None;
+                    self.commands.clear(); self.raw = false;
                     self.log.push("disconnected".into());
                 }
                 LinkEvent::Reset => {
@@ -365,6 +385,9 @@ impl Peer {
                     self.connected = false;
                     self.advertising = false;
                     self.pending = None;
+                    // Keep ordinary/pre-boot scripts across NimBLE's initialization reset.
+                    // Only an already active raw session owns stale ATT work to cancel.
+                    if self.raw { self.commands.clear(); } self.raw = false;
                 }
                 LinkEvent::Data(cid, p) => match cid {
                     4 => self.receive_att(&p),
@@ -407,6 +430,11 @@ impl Peer {
     fn receive_att(&mut self, p: &[u8]) {
         if p.is_empty() {
             self.log.push("empty ATT packet".into());
+            return;
+        }
+        if self.raw {
+            self.log.push(format!("att-rx {}", hex(p)));
+            if !matches!(p[0], 0x1b | 0x1d | 2) && self.pending == Some(Request::Raw) { self.pending = None; }
             return;
         }
         if p[0] == 2 && p.len() == 3 {
@@ -631,7 +659,7 @@ mod tests {
     #[test]
     fn full_controller_commands_do_not_queue_in_hci_mode() {
         let mut session = Session::default();
-        for command in ["central-stop", "disconnect", "read-uuid 4fafc201-1fb5-459e-8fcc-c5c9c331914b beb5483e-36e1-4688-b7f5-ea07361b26a8"] {
+        for command in ["central-stop", "read-uuid 4fafc201-1fb5-459e-8fcc-c5c9c331914b beb5483e-36e1-4688-b7f5-ea07361b26a8"] {
             assert!(session.command(command).unwrap_err().contains("requires full BLE"));
             assert_eq!(session.pending_commands(), 0);
         }
@@ -644,6 +672,51 @@ mod tests {
         assert_eq!("write 1 00aAFF".parse::<Command>().unwrap(), Command::Write(1, vec![0,170,255]));
         for bad in ["write 1 0", "write 1 zz", "write 1 é0", "write 1 000000000000000000000000000000000000000000"] { assert!(bad.parse::<Command>().is_err()); }
         assert_eq!(read_by_type(0x1234, 0x5678), [8,0x34,0x12,0x78,0x56,3,0x28]);
+    }
+
+    #[test]
+    fn raw_att_preserves_mtu_requests_notifications_and_reconnect() {
+        let mut c = Session::default(); connect(&mut c); c.drain_log();
+        c.command("att 020502").unwrap();
+        let packet = c.pop_packet().unwrap();
+        assert_eq!(&packet[9..], [2,5,2]);
+        acl(&mut c, &[3,5,2]);
+        assert_eq!(c.pending_commands(), 0);
+        assert!(c.drain_log().iter().any(|l| l == "att-rx 030502"));
+        acl(&mut c, &[0x1b,7,0,42]);
+        assert!(c.drain_log().iter().any(|l| l == "att-rx 1b07002a"));
+        c.command("att 0a0700").unwrap();
+        c.command("write 7 01").unwrap();
+        c.command("disconnect").unwrap();
+        assert_eq!(c.pending_commands(), 0, "disconnect cancels queued work from the old session");
+        assert!(c.drain_log().iter().any(|l| l == "disconnected"));
+        connect(&mut c);
+        c.command("read 7").unwrap(); acl(&mut c, &[0x0b,43]);
+        assert!(c.drain_log().iter().any(|l| l.starts_with("read handle=0x0007 value=2b")), "fresh link restores ordinary peer mode");
+        c.command("att 0a0700").unwrap(); c.command("write 7 01").unwrap();
+        cmd(&mut c, 0x0c03, &[]);
+        assert_eq!(c.pending_commands(), 0, "reset cancels an active raw session only");
+        assert!(!c.peer.raw);
+    }
+
+    #[test]
+    fn raw_att_maximum_is_fragmented_without_truncating_payload() {
+        let mut c = Session::default(); connect(&mut c);
+        let mut pdu = vec![0x52,7,0]; pdu.extend((0..514).map(|n| n as u8));
+        c.command(&format!("att {}", hex(&pdu))).unwrap();
+        let mut reassembled = Vec::new();
+        for i in 0..3 {
+            let p = c.pop_packet().unwrap();
+            assert!(p.len() <= 256);
+            assert_eq!(p[2], if i == 0 { 0x20 } else { 0x10 });
+            assert_eq!(word(&p[3..]) as usize, p.len() - 5);
+            reassembled.extend_from_slice(&p[5..]);
+        }
+        assert_eq!(&reassembled[..4], [5,2,4,0]);
+        assert_eq!(&reassembled[4..], pdu);
+        for bad in ["att ", "att zz", "att 0", &format!("att {}", "00".repeat(518))] {
+            assert!(bad.parse::<Command>().is_err());
+        }
     }
 
     #[test]
