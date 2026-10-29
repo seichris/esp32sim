@@ -22,6 +22,16 @@ pub struct SpiPins {
     pub cs: u64,
 }
 
+/// The pads of a board's SD card socket: CLK, CMD and D0-D3, `None` where a line is not wired.
+/// A chip whose SD/MMC host reaches pads only through the GPIO matrix (the ESP32-S3) puts the
+/// card on whichever slot drives CLK.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SdSocket {
+    pub clk: u8,
+    pub cmd: u8,
+    pub data: [Option<u8>; 4],
+}
+
 /// What a board does with the SoC's pin-level activity.
 pub trait BoardModel {
     fn name(&self) -> &'static str;
@@ -142,6 +152,8 @@ pub trait BoardModel {
     fn camera_frame_start(&mut self, _claim: bool) -> Option<VirtualCycle> { None }
     /// Physical route changes invalidate the fresh-frame opportunity.
     fn invalidate_camera_frame_start(&mut self) {}
+    /// Where the board's SD card socket is wired, if it has one: `--sd` puts the card there.
+    fn sd_socket(&self) -> Option<SdSocket> { None }
 }
 
 pub type Board = Box<dyn BoardModel>;
