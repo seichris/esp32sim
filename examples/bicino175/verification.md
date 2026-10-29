@@ -80,6 +80,12 @@ Retained failures:
    | silent after `PAIRED`, 13 s confirmation | — | dropped 12.02 s later: pass |
    | silent after connecting | dropped 12.12 s later: pass | dropped 12.18 s later: pass |
 
+   The reviewed head `6141d89d` (the fix, main `df58b75a` and two review fixes:
+   the window start is read before the clock, and the deadline stays
+   fail-closed without a lock) gives the same results on replay `2b7581d6`:
+   all three replays 22/22, drops at 12.02 s after `PAIRED` and 12.20 s after
+   connecting.
+
    Two replay timing bugs surfaced on the way and are fixed: a 90-second wall
    limit on advancing modeled time, and a main-screen check that read the last
    5-second status line instead of waiting for one. Receipt:

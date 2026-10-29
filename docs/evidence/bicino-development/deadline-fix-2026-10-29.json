@@ -7,7 +7,7 @@
   "dirty": false,
   "rust": "1.99.1"
  },
- "change": "seichris/open-bike-computer pull request #667 at a8a0297e: the unauthenticated BLE window restarts when CONFIRM registers ownership",
+ "change": "seichris/open-bike-computer pull request #667: the unauthenticated BLE window restarts when CONFIRM registers ownership (a8a0297e; review fixes in 6141d89d)",
  "firmware": {
   "unfixed-f37a084f": {
    "revision": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
@@ -24,6 +24,14 @@
    "bootloader.bin": "83a06f27135bc674db41f21b5bed122bf659bbf0a2e3ee7e45654245741cafe9",
    "boot_app0.bin": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
    "builder": "esp32/tools/build_firmware.py WAVESHARE_AMOLED_175, uploadEligible=1, coreCache=hit, coreInputKey 6a1f9d0cfbeec5a88313057f2674680efe11a085de5b90f3af13768aac558bd3"
+  },
+  "reviewed-6141d89d": {
+   "revision": "6141d89d94244bcf718af4ac719644c8898d136a",
+   "contains": "a8a0297e, main df58b75a, and the review fixes (window start read before the clock; fail-closed without a mutex)",
+   "firmware.bin": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "firmware.elf": "24e910649e72c366ec381d6563c0759331167243422b8af95893f508d34db4d4",
+   "partitions.bin": "cf7f29eb12d1d8b35f317d5520a55fabc21ae2ac558c16fc981dfa5a1f217364",
+   "builder": "esp32/tools/build_firmware.py WAVESHARE_AMOLED_175, uploadEligible=1, coreCache=hit"
   }
  },
  "runs": {
@@ -827,6 +835,300 @@
     },
     "emulator.log": {
      "sha256": "8ee0dc47a4bd7a7f9a988914a36ce2b832dc440077389be8e7bcac099e2d3f15",
+     "bytes": 2217
+    }
+   }
+  },
+  "reviewed-6141d89d.run-default": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py run --no-build",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true
+   },
+   "boot_metadata": "BOOT_META schema=1 sequence=1 target=WAVESHARE_AMOLED_175 profile=WAVESHARE_AMOLED_175 version=0.3.4 build=105 git=6141d89d94244bcf718af4ac719644c8898d136a built=2026-10-29T14:15:18Z fingerprint=2409493B reset=power_on resetCode=1",
+   "emulator_dirty": false,
+   "ownership_lines": [],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "c95646af208745bcb76155bc67193e20e9625590e4cd49abfa4e5de7cbc27230",
+     "bytes": 7149
+    },
+    "emulator.log": {
+     "sha256": "b81086d6f22c84f2ccc16ba1f1e7cd569e8db7c7c2df1e0a395374cf8619b70e",
+     "bytes": 1699
+    }
+   }
+  },
+  "reviewed-6141d89d.scenario-default": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+   },
+   "confirmation_delay_seconds": 1,
+   "abandon": null,
+   "abandon_seconds_to_drop": null,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Secure ownership comparison started",
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Scoped controller session authenticated",
+    "BLE: Scoped controller session authenticated"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "3a1aac9d7580d537d7be52ab1f19931788312a1d67f22052d4268050d6168dc5",
+     "bytes": 22120
+    },
+    "emulator.log": {
+     "sha256": "5bbc270e6181773e58f7841c775ead99000162da72f9b4bb4fd95fc954e1cd21",
+     "bytes": 8358
+    }
+   }
+  },
+  "reviewed-6141d89d.scenario-delay-13": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --confirmation-delay 13",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+   },
+   "confirmation_delay_seconds": 13.0,
+   "abandon": null,
+   "abandon_seconds_to_drop": null,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Secure ownership comparison started",
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Scoped controller session authenticated",
+    "BLE: Scoped controller session authenticated"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "72d236dec7a4288b38c260e5f37e83e85076700ae0be259d5a1f845c3249a984",
+     "bytes": 31155
+    },
+    "emulator.log": {
+     "sha256": "ce9de27e17b2e766a58e8a373d717ce8b48a1c7698614255ac6e58f651900cc1",
+     "bytes": 8383
+    }
+   }
+  },
+  "reviewed-6141d89d.scenario-delay-100": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --confirmation-delay 100",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+   },
+   "confirmation_delay_seconds": 100.0,
+   "abandon": null,
+   "abandon_seconds_to_drop": null,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Secure ownership comparison started",
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Scoped controller session authenticated",
+    "BLE: Scoped controller session authenticated"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "ee110abf5f8989e9e0246d520ef61394136e194c390d2db57992a3217b9dced5",
+     "bytes": 104928
+    },
+    "emulator.log": {
+     "sha256": "c89e2a9f3cd0e785d85e0a0aed368dfbb44f5629cc92112b56eed01376f18af5",
+     "bytes": 8423
+    }
+   }
+  },
+  "reviewed-6141d89d.abandon-registered": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --abandon registered",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "registered_link_dropped_after_window": true
+   },
+   "confirmation_delay_seconds": 1,
+   "abandon": "registered",
+   "abandon_seconds_to_drop": 12.02,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Secure ownership comparison started",
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Disconnecting unauthenticated client after timeout"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "3d8a895f739e981e5730cac8bc8d5fed85b40e18871110559d88ab41461baf63",
+     "bytes": 19546
+    },
+    "emulator.log": {
+     "sha256": "6b42d6439c81e0f579bea5213373d0615d0a4e678eba78f7fd1ed31f261e7849",
+     "bytes": 3060
+    }
+   }
+  },
+  "reviewed-6141d89d.abandon-registered-delay-13": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --confirmation-delay 13 --abandon registered",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "registered_link_dropped_after_window": true
+   },
+   "confirmation_delay_seconds": 13.0,
+   "abandon": "registered",
+   "abandon_seconds_to_drop": 12.02,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Secure ownership comparison started",
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Disconnecting unauthenticated client after timeout"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "ba61277354f5fb47317616036e06278bf9c4c89589aa757262892b9cd8720b0f",
+     "bytes": 30116
+    },
+    "emulator.log": {
+     "sha256": "e0fc22a9f578b342f367a40f6eb2d5f56701525a17c130c13682ca5927a564d4",
+     "bytes": 3065
+    }
+   }
+  },
+  "reviewed-6141d89d.abandon-connected": {
+   "firmware": "reviewed-6141d89d",
+   "replay_revision": "2b7581d67ff2fee86b79ac99edc940ec85fc65fd",
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --abandon connected",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "abandoned_link_dropped_after_window": true
+   },
+   "confirmation_delay_seconds": 1,
+   "abandon": "connected",
+   "abandon_seconds_to_drop": 12.200000000000001,
+   "emulator_dirty": false,
+   "firmware_sha256": "d60716431b34f954d1353de4bb5741f60e37ba0dd1a725679853ae5d24c68695",
+   "ownership_lines": [
+    "BLE: Disconnecting unauthenticated client after timeout"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "bf9be1c3db76eda97d30a099cb40bd16c036645061fe289458936c14d2e0b6c3",
+     "bytes": 18032
+    },
+    "emulator.log": {
+     "sha256": "6062e6c24c61a6ff8fec3090a98649eee58f0299c507b57ed69006b11df58291",
      "bytes": 2217
     }
    }
