@@ -224,6 +224,8 @@ def main():
                 check("map_found_reported", found)
             snapshot("map-sd" if storage.get("active_map") else "map-no-data")
             check("protected_replay_rejected", "Rejected GPS" in delta or "rejected authenticated GPS" in delta or "invalid authenticated GPS" in delta)
+            # The status line comes every 5 modeled seconds; wait for one taken after the switch.
+            wait_serial(r"SYS: [^\n]*screen=main tile=\w+")
             serial = (output / "serial.log").read_text(errors="replace")
             tiles = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", serial)
             check("main_screen_visible", bool(tiles))
