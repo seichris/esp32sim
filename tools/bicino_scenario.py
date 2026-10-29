@@ -66,7 +66,8 @@ def main():
                         return
         def advance_guest(seconds):
             target = None
-            deadline = time.monotonic() + 90
+            # Modeled time can run slower than wall time on a loaded host.
+            deadline = time.monotonic() + 90 + 4 * seconds
             while time.monotonic() < deadline:
                 kind, data = guest.ws.receive()
                 if kind == 1:
