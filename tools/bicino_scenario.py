@@ -16,6 +16,7 @@ import struct
 import sys
 import time
 
+import bicino as capture
 from bicino_ble import Guest
 from bicino_live import write_png
 
@@ -24,17 +25,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirmation-delay", type=float, default=1,
                         help="Modeled seconds before confirming the code (0 to 100; default 1)")
+    parser.add_argument("--position", default="0,0",
+                        help="LAT,LON in degrees for the route and GPS (default 0,0); put it inside an SD map to render one")
     args = parser.parse_args()
     if not 0 <= args.confirmation_delay <= 100:
         parser.error("--confirmation-delay must be between 0 and 100 modeled seconds")
+    try:
+        lat, lon = (round(float(v) * 1_000_000) for v in args.position.split(","))
+    except ValueError:
+        parser.error("--position expects LAT,LON")
+    if not (-90_000_000 <= lat <= 90_000_000 - 100 and -180_000_000 <= lon <= 180_000_000 - 100):
+        parser.error("--position is outside WGS-84 bounds")
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     checks = {}
     completed = False
+    storage = {"mode": "no-card-substitution"}
     with contextlib.closing(Guest()) as guest:
         output = Path(guest.state["output"])
+        if (output / "manifest.json").exists():
+            storage = json.loads((output / "manifest.json").read_text()).get("storage", storage)
         def check(name, condition):
             checks[name] = bool(condition)
             print(name, "PASS" if condition else "FAIL", flush=True)
@@ -69,7 +81,13 @@ def main():
                     return True
                 guest.ws.receive()
             return False
+        def emulator_log():
+            return (output / "emulator.log").read_text(errors="replace")
         try:
+            if storage["mode"] == "sd-card":
+                boot = (output / "serial.log").read_text(errors="replace")
+                for name, ok in capture.sd_checks(boot, storage).items():
+                    check(name, ok)
             guest.connect(185)
             check("mtu_185", guest.mtu == 185)
             service = next(s for s in guest.discover() if s["uuid"] == "9d7b3f30-3f6a-4d1c-9f6d-1fbf0e8b1800")
@@ -136,9 +154,10 @@ def main():
                 check("notification_proof_" + label, plaintext.startswith(f"DEVICE|2|{device}|1|".encode()))
             encrypted_info("initial")
             before = (output / "serial.log").read_text(errors="replace")
+            sd_offset = len(emulator_log())
             guest.write(nav["handle"], protected(2, b"1|120|Turn right at the test junction"))
-            guest.write(route["handle"], protected(3, struct.pack("<iihhhh", 0, 0, 100, 0, 0, 100)))
-            gps_frame = protected(4, struct.pack("<iiH", 0, 0, 90))
+            guest.write(route["handle"], protected(3, struct.pack("<iihhhh", lat, lon, 100, 0, 0, 100)))
+            gps_frame = protected(4, struct.pack("<iiH", lat, lon, 90))
             guest.write(gps["handle"], gps_frame)
             guest.write(settings["handle"], protected(5, struct.pack("<Bi", 11, 0)))
             time.sleep(0.4)
@@ -147,7 +166,25 @@ def main():
             delta = (output / "serial.log").read_text(errors="replace")[len(before):]
             (output / "scenario-serial.log").write_text(delta)
             check("protected_writes_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*nav=1 route=1 gps=1 settings=1"))
-            snapshot("map-no-data")
+            if storage.get("active_map"):
+                # The render worker reads the blocks around the new position from the card.
+                deadline = time.monotonic() + 90
+                reads = {}
+                while time.monotonic() < deadline:
+                    reads = capture.sd_reads(emulator_log()[sd_offset:], storage.get("files", []))
+                    if any(path.endswith(".fmb") for path in reads):
+                        break
+                    guest.ws.receive()
+                storage["reads_after_gps"] = reads
+                check("map_blocks_read_after_gps", any(path.endswith(".fmb") for path in reads))
+                # The firmware's own status line: the renderer holds blocks of the active map.
+                deadline, found = time.monotonic() + 90, None
+                while time.monotonic() < deadline and not found:
+                    found = re.search(r"SYS: [^\n]*mapFound=1 mapBlocks=([1-9]\d*)", (output / "serial.log").read_text(errors="replace")[len(before):])
+                    if not found:
+                        guest.ws.receive()
+                check("map_found_reported", found)
+            snapshot("map-sd" if storage.get("active_map") else "map-no-data")
             check("protected_replay_rejected", "Rejected GPS" in delta or "rejected authenticated GPS" in delta or "invalid authenticated GPS" in delta)
             serial = (output / "serial.log").read_text(errors="replace")
             tiles = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", serial)
@@ -171,7 +208,7 @@ def main():
             guest.connect(185); guest.subscribe(auth); guest.subscribe(nav)
             write_key, notify_key = authenticate("22" * 16); seq.clear()
             encrypted_info("reconnect")
-            guest.write(gps["handle"], protected(4, struct.pack("<iiH", 100, 100, 180)))
+            guest.write(gps["handle"], protected(4, struct.pack("<iiH", lat + 100, lon + 100, 180)))
             time.sleep(0.3)
             check("reconnect_protected_gps_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*authOK=2 [^\n]*nav=1 route=1 gps=2 settings=1"))
             snapshot("reconnected")
@@ -180,10 +217,16 @@ def main():
             check("single_boot", serial.count("BOOT_META ") == 1)
             completed = True
         finally:
-            report = {"schema": 1, "passed": completed and bool(checks) and all(checks.values()), "checks": checks,
-                      "confirmation_delay_seconds": args.confirmation_delay,
+            passed = completed and bool(checks) and all(checks.values())
+            notes = {"no-card-substitution": "SD failure substitution and FFat fallback remain.",
+                     "empty-socket": "Empty modelled SD socket: the real driver finds no card; FFat fallback.",
+                     "sd-card": "Modelled SD card through the real SDMMC driver; map from the image's active selection."}
+            report = {"schema": 1, "passed": passed, "checks": checks,
+                      "confirmation_delay_seconds": args.confirmation_delay, "position_microdegrees": [lat, lon],
                       "physical_iphone": False, "physical_board": False,
-                      "sd_maps": False, "note": "Synthetic ATT client; real guest ownership handlers. SD failure substitution and FFat fallback remain."}
+                      "storage": {k: v for k, v in storage.items() if k != "files"},
+                      "sd_maps": passed and storage["mode"] == "sd-card" and bool(storage.get("active_map")),
+                      "note": "Synthetic ATT client; real guest ownership handlers. " + notes[storage["mode"]]}
             (output / "scenario-result.json").write_text(json.dumps(report, indent=2) + "\n")
     return 0
 

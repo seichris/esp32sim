@@ -17,9 +17,9 @@ From this repository:
 The command checks the incremental emulator build, boots the cached firmware for
 five emulated seconds, and returns success only after the firmware reports the
 correct target, boot readiness, BLE advertising, and a nonblank 466x466 screen.
-An emulator fault, guest panic, or wall timeout fails the run. First boot on the
-validated image reached ready at about 3.8 emulated seconds; a five-second capture
-took 5.58 seconds wall time in one local run, excluding the cached build check.
+An emulator fault, guest panic, or wall timeout fails the run. The `f37a084f`
+image reached ready at 1.73 emulated seconds without a card; a five-second capture
+took 6.39 seconds wall time in one local run, excluding the cached build check.
 This is a workflow observation, not an ESP32 performance benchmark.
 
 Read `.local/bicino/latest/result.json` first. Other files in that same directory:
@@ -76,14 +76,18 @@ hook is added.
 
 Install current stable Rust and Python 3.11+ once. Then point at an **existing
 1.75-inch** PlatformIO build directory with `bootloader.bin`, `partitions.bin`,
-`firmware.bin` and its matching **unstripped** `firmware.elf`:
+`firmware.bin` and its matching **unstripped** `firmware.elf`. A build from
+open-bike-computer's locked builder (`python3 tools/build_firmware.py
+WAVESHARE_AMOLED_175` in its `esp32/`) also leaves `open-bike-flash-plan.json`;
+setup then snapshots every other image it flashes (`boot_app0.bin`'s OTA data)
+and writes it at the same offset (`0xe000`):
 
 ```sh
 ./tools/bicino.py setup --firmware-dir /path/to/open-bike-computer/esp32/.pio/build/WAVESHARE_AMOLED_175
 ./tools/bicino.py run
 ```
 
-Setup snapshots the four files, verifies hashes, fetches checksum-pinned
+Setup snapshots the files, verifies hashes, fetches checksum-pinned
 Espressif ROMs, and builds the emulator. On macOS it uses APFS copy-on-write
 clones to avoid duplicating large ELF files. Existing snapshots and ROMs are
 reused. It does not build or flash firmware. Source worktree HEAD is recorded as
@@ -103,17 +107,57 @@ The upright welcome capture SHA-256 is
 `38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd`.
 The image is not committed here and needs to be supplied on another machine.
 
-The navigation replay uses `seichris/open-bike-computer` commit
+The navigation replay first used `seichris/open-bike-computer` commit
 `50aaf9b134ae1de88f1769fcb7742cbea88c7f69` from
-[firmware PR #632](https://github.com/seichris/open-bike-computer/pull/632).
-Its firmware SHA-256 is
-`5be95483ca387d6ac60ce5351cee90b1e818758033c6fa449dd8cfdcaab0eef5`.
-It fixes the FFat render-worker stack assertion. The cached setup on this machine
-now selects that snapshot; both old and fixed inputs remain available locally.
-Neither image has been flashed as part of this workflow.
+[firmware PR #632](https://github.com/seichris/open-bike-computer/pull/632)
+(firmware SHA-256 `5be95483ca387d6ac60ce5351cee90b1e818758033c6fa449dd8cfdcaab0eef5`),
+which fixes the FFat render-worker stack assertion. The current input is `main`
+at `f37a084facc8a286ad506bd51bfc2e6adbd19957`, version 0.3.4/build 105,
+fingerprint `289B86E9`, firmware SHA-256
+`ada0975cb17d1378b33861d67ddc1fef3abfca473668b49fe4463dfe53150787`, built by the
+locked builder from a clean checkout. No image has been flashed as part of this workflow.
 
 Validation and retained negative results are in
-[`verification.md`](verification.md). The original firmware snapshot is retained
+[`verification.md`](verification.md).
+
+## microSD card and maps
+
+The guest's storage is one of three explicit modes, recorded as `storage` in
+`result.json`, the live `manifest.json` and `scenario-result.json`:
+
+| Mode | Option | What runs |
+| --- | --- | --- |
+| `no-card-substitution` | default | `Storage::initSD()` returns `ESP_FAIL` at once; FFat fallback |
+| `empty-socket` | `--full-storage-probe` | the real SDMMC driver meets an empty socket, then the SPI fallback and FFat |
+| `sd-card` | `--sd-image card.img` | the real SDMMC driver and FatFs on a modelled card in the board's socket |
+
+The card sits in the 1.75-inch board's one-bit socket (CLK 2, CMD 1, D0 3) behind
+the ESP32-S3 SD/MMC host. The image is attached copy-on-write: guest writes stay
+in memory, so the file and its hash never change. `--debug sdmmc` logs every
+command into `emulator.log`, and the checks count the block reads that start in
+each file's sectors.
+
+`tools/bicino_sdcard.py` writes a reproducible FAT32 image (fixed timestamps,
+long file names) and a JSON manifest of every file's SHA-256 and sectors.
+`--map` installs a renderer tree under `VECTMAP/.maps/<mapId>` with a
+session-less `VECTMAP/active-map.json`, which the firmware's boot probe selects:
+
+```sh
+FIXTURES=/path/to/open-bike-computer/map-platform/backend/tests/fixtures/map-compatibility-extraction-v1
+python3 tools/bicino_sdcard.py build --out .local/bicino/sd/golden-gate-t3.img \
+  --map $FIXTURES/golden-gate-labels-t3 --map-id golden-gate-labels-t3
+./tools/bicino.py run --sd-image .local/bicino/sd/golden-gate-t3.img --seconds 8
+./tools/bicino.py restart --sd-image .local/bicino/sd/golden-gate-t3.img
+python3 tools/bicino_scenario.py --position 37.8199,-122.4783
+```
+
+With a card, `run` also requires the native mount, the boot selection of the
+image's active map and a block read from it. The scenario additionally requires
+block reads after its GPS update and the firmware's own `mapFound=1` status.
+The Golden Gate fixture is frozen worker output (OpenStreetMap data,
+© OpenStreetMap contributors, ODbL 1.0); keep images and fixtures out of Git.
+A hand-written selection is not an app-installed durable map: no map transfer,
+manifest receipt or signature check runs. The original firmware snapshot is retained
 because it reproduces a real FFat/PSRAM render-worker assertion after pairing
 and route delivery. A welcome screen alone does not qualify navigation.
 
@@ -188,12 +232,12 @@ Compound/offset native writes are refused.
 and firmware logs can include synthetic or real session data; keep them local.
 Do not run the bridge while another task owns the iPhone. An actual iPhone run
 passed discovery, matching-code registration, protected settings/GPS/navigation,
-bridge and app restart recovery, and deregistration. Full map transfers and SD
-background rendering remain unproven. The supplied firmware has a separate
-pairing deadline bug: confirmation after 13 modeled seconds registers ownership
-then disconnects before authentication. Prompt confirmation passes; this is
-recorded as a firmware failure, not hidden by the proxy. See
-[`verification.md`](verification.md) for the exact scope.
+bridge and app restart recovery, and deregistration. Full map transfers remain
+unproven, and that iPhone run had no card in the simulator. The firmware has a
+separate pairing deadline bug, still present at `f37a084f`: confirmation after
+13 modeled seconds registers ownership then disconnects before authentication.
+Prompt confirmation passes; this is recorded as a firmware failure, not hidden
+by the proxy. See [`verification.md`](verification.md) for the exact scope.
 
 For a reproducible synthetic ownership/navigation scenario, install the optional
 Python `cryptography` package in your own environment, restart to a fresh guest,
@@ -218,9 +262,10 @@ with no guest panic.
 It retains `scenario-result.json` and pairing/navigation screenshots in the live
 session directory. It deliberately fails against the original crashing firmware;
 a failed result is not a bridge or physical-device success. No real credential
-is imported or saved by the client. Successful map-background rendering still
-needs a populated storage backend; SDMMC is tracked by upstream
-[PR #274](https://github.com/mikroverk/esp32sim/pull/274), dependent on #273.
+is imported or saved by the client. With `--sd-image` and `--position` inside
+the card's map, the same replay renders map blocks from the card (see
+[microSD card and maps](#microsd-card-and-maps)); the SD/MMC host is upstream
+[PR #274](https://github.com/mikroverk/esp32sim/pull/274)'s model, wired into the S3.
 
 The host attachment design is tracked in
 [upstream #279](https://github.com/mikroverk/esp32sim/issues/279), extending
@@ -231,12 +276,12 @@ describe the native boundary.
 
 ## Prototype boundary
 
-- The firmware `.bin` is unchanged. The runner explicitly substitutes
-  `Storage::initSD()` with `ESP_FAIL` at runtime because SDMMC is unmodeled.
-  Firmware's normal FFat fallback formats and runs on emulated flash. Fresh
-  flash is used each run. This proves the welcome-screen/no-card boot path,
-  not SD map rendering. `--full-storage-probe` disables that substitution;
-  the initial 12-second probe spent its time in real SDMMC timeout/retry paths.
+- The firmware `.bin` is unchanged. By default the runner substitutes
+  `Storage::initSD()` with `ESP_FAIL` at runtime; the firmware's normal FFat
+  fallback formats and runs on emulated flash. Fresh flash is used each run.
+  `--full-storage-probe` and `--sd-image` run the real SDMMC driver instead.
+  The SD bus is untimed (commands complete within their register write) and
+  the card is an ideal one: no card-clock timing, power or insertion events.
 - The CO5300 model receives real QSPI writes with the 466x466 window and 6-pixel
   column offset. Presentation compensates for Bicino's mounted orientation;
   native GRAM remains available. No screenshot is fabricated or replaced.

@@ -20,9 +20,17 @@ import zlib
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / ".local" / "bicino"
 FILES = ("bootloader.bin", "partitions.bin", "firmware.bin", "firmware.elf")
+# open-bike-computer's locked builder records every image it flashes; the ones besides the
+# bootloader, partition table and app (boot_app0.bin's OTA data) go in at their offsets.
+FLASH_PLAN = "open-bike-flash-plan.json"
 ROM_SHA = "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd"
+STORAGE = {
+    "no-card-substitution": "Storage::initSD is substituted with ESP_FAIL; real FFat fallback runs. No SD card or SD maps.",
+    "empty-socket": "Real SDMMC driver against an empty modelled socket: commands time out, the firmware's SPI fallback fails, FFat runs. No SD maps.",
+    "sd-card": "Real SDMMC driver and FatFs on a modelled card (copy-on-write image, untimed bus, one-bit slot 1). Map content is what the image holds; no map transfer, signature or durable-install path runs.",
+}
 LIMITATIONS = [
-    "Storage::initSD is substituted with ESP_FAIL; real FFat fallback runs. No SD maps.",
+    STORAGE["no-card-substitution"],
     "Virtual BLE controller; no real iPhone, RF, pairing or throughput validation.",
     "AXP2101, RTC, TCA9554 and codec initialization stubs; no power/reset fidelity.",
     "No GPS or IMU; single-contact touch only. Screen is the mounted Bicino orientation.",
@@ -46,31 +54,52 @@ def save(path, value):
     os.replace(pending.name, path)
 
 
+def flash_extras(source):
+    """Images of the build's flash plan other than FILES: name -> (path, offset)."""
+    plan = source / FLASH_PLAN
+    if not plan.is_file():
+        return {}
+    extras = {}
+    for image in json.loads(plan.read_text())["images"]:
+        path, offset = Path(image["path"]), image["offset"]
+        if path.name in FILES:
+            continue
+        if not re.fullmatch(r"0x[0-9a-fA-F]+", offset) or not path.is_file():
+            raise ValueError(f"{plan}: unusable image {path.name} at {offset}")
+        extras[path.name] = (path, offset)
+    return extras
+
+
 def import_firmware(directory):
     source = directory.expanduser().resolve()
     missing = [name for name in FILES if not (source / name).is_file()]
     if missing:
         raise ValueError(f"Missing firmware files in {source}: {', '.join(missing)}")
-    hashes = {name: sha(source / name) for name in FILES}
+    extras = flash_extras(source)
+    paths = {name: source / name for name in FILES} | {name: path for name, (path, _) in extras.items()}
+    hashes = {name: sha(path) for name, path in paths.items()}
     key = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()[:16]
     destination = LOCAL / "inputs" / key
     destination.mkdir(parents=True, exist_ok=True)
-    for name in FILES:
+    for name, path in paths.items():
         if not (destination / name).exists() or sha(destination / name) != hashes[name]:
             # APFS snapshots share immutable file extents instead of duplicating
             # a 50 MB ELF on every import. Publish only a complete verified file.
             pending = destination / (name + ".pending")
             cloned = sys.platform == "darwin" and subprocess.run(
-                ["/bin/cp", "-c", str(source / name), str(pending)], capture_output=True).returncode == 0
+                ["/bin/cp", "-c", str(path), str(pending)], capture_output=True).returncode == 0
             if not cloned:
-                shutil.copyfile(source / name, pending)
+                shutil.copyfile(path, pending)
             if sha(pending) != hashes[name]:
                 raise ValueError(f"Firmware changed during snapshot: {name}")
             os.replace(pending, destination / name)
         if sha(destination / name) != hashes[name]:
             raise ValueError(f"Firmware changed during snapshot, or corrupt snapshot: {name}")
     manifest = {"directory": str(destination), "source_directory": str(source),
-                "source_git_commit": git("rev-parse", "HEAD", directory=source), "sha256": hashes}
+                "source_git_commit": git("rev-parse", "HEAD", directory=source), "sha256": hashes,
+                "flash_at": {name: offset for name, (_, offset) in extras.items()}}
+    if extras:
+        manifest["flash_plan_sha256"] = sha(source / FLASH_PLAN)
     save(LOCAL / "config.json", manifest)
     return manifest
 
@@ -114,6 +143,46 @@ def screen_info(path):
     return {"width": size[0], "height": size[1], "distinct_colors": len(colors), "sha256": sha(path)}
 
 
+def storage_for(args):
+    """The storage the guest gets, and what is known about an SD image."""
+    if getattr(args, "sd_image", None) and args.full_storage_probe:
+        raise ValueError("--sd-image and --full-storage-probe exclude each other")
+    if not getattr(args, "sd_image", None):
+        return {"mode": "empty-socket" if args.full_storage_probe else "no-card-substitution"}
+    image = args.sd_image.expanduser().resolve()
+    info = {"mode": "sd-card", "image": str(image), "sha256": sha(image), "bytes": image.stat().st_size}
+    described = image.with_name(image.name + ".json")
+    if described.is_file():
+        card = json.loads(described.read_text())
+        if card.get("sha256") != info["sha256"]:
+            raise ValueError(f"{image.name} does not match {described.name}")
+        info.update(active_map=card.get("active_map"), files=card.get("files", []))
+    return info
+
+
+def sd_reads(log, files):
+    """Read commands (CMD17/18, block-addressed) the host answered, per image file whose sectors
+    they start in; `--debug sdmmc` logs each command."""
+    runs = [(f["path"], lba, lba + count) for f in files for lba, count in f.get("lba_runs", [])]
+    reads = {}
+    for match in re.finditer(r"^\[sdmmc\] slot \d CMD1[78] arg (0x[0-9a-f]+) -> Ok", log, re.MULTILINE):
+        lba = int(match.group(1), 16)
+        for path, start, end in runs:
+            if start <= lba < end:
+                reads[path] = reads.get(path, 0) + 1
+    return reads
+
+
+def sd_checks(serial, storage):
+    """Boot-time SD evidence from the firmware's own logs: the native mount and, for an image
+    with an active map, the renderer probe and root switch to it."""
+    checks = {"sd_mounted": bool(re.search(r"SDIO: attempt=\d+/\d+ phase=mount bus=SDMMC pins=1 mounted=1 card=1 root=1", serial))}
+    active = storage.get("active_map")
+    if active:
+        checks["map_selected"] = f"MAP_TRANSFER: activeMapId={active['mapId']} root={active['root']}\n" in serial
+    return checks
+
+
 def prepare(args):
     manifest = import_firmware(args.firmware_dir) if args.firmware_dir else json.loads((LOCAL / "config.json").read_text())
     firmware = Path(manifest["directory"])
@@ -135,15 +204,20 @@ def new_output():
     return output
 
 
-def command_for(args, firmware, rom, output):
+def command_for(args, firmware, rom, output, manifest, storage):
     command = [str(ROOT / "target/release/esp32sim"), "--board", "waveshare-amoled175", "--boot", "rom",
                "--rom", str(rom), "--flash-mb", "16", "--psram-mb", "8",
                "--bootloader", str(firmware / "bootloader.bin"), "--ptable", str(firmware / "partitions.bin"),
                "--app", str(firmware / "firmware.bin"), "--elf", str(firmware / "firmware.elf"), "--ble",
                "--console", "usb", "--max-seconds", str(args.seconds), "--no-reboot", "--no-dump",
                "--tft-png", str(output / "screen.png"), "--gram-png", str(output / "native-gram.png")]
-    if not args.full_storage_probe:
+    for name, offset in manifest.get("flash_at", {}).items():
+        command += ["--flash-at", f"{offset}={firmware / name}"]
+    if storage["mode"] == "no-card-substitution":
         command += ["--stub", "_ZN7Storage6initSDEv=0xffffffff"]
+    elif storage["mode"] == "sd-card":
+        # Copy-on-write: the guest's writes stay in memory and the image is never changed.
+        command += ["--sd", storage["image"], "--debug", "sdmmc"]
     if args.script:
         shutil.copyfile(args.script, output / "actions.txt")
         command += ["--script", str(output / "actions.txt")]
@@ -154,9 +228,10 @@ def command_for(args, firmware, rom, output):
 
 
 def run(args):
+    storage = storage_for(args)
     manifest, firmware, rom = prepare(args)
     output = new_output()
-    command = command_for(args, firmware, rom, output)
+    command = command_for(args, firmware, rom, output, manifest, storage)
     start = time.monotonic()
     timed_out = False
     print(f"Capturing {args.seconds:g} emulated seconds; logs: {output}", flush=True)
@@ -184,17 +259,21 @@ def run(args):
     except (OSError, ValueError, struct.error, zlib.error) as error:
         checks["nonblank_screen"] = False
         screen = {"error": str(error)}
+    if storage["mode"] == "sd-card":
+        checks.update(sd_checks(serial, storage))
+        storage["reads"] = sd_reads(diagnostics, storage.get("files", []))
+        if storage.get("active_map"):
+            checks["map_block_read"] = any(path.endswith(".fmb") for path in storage["reads"])
     passed = all(checks.values())
     metadata = re.search(r"^BOOT_META .*$", serial, re.MULTILINE)
-    limitations = list(LIMITATIONS)
-    if args.full_storage_probe:
-        limitations[0] = "SDMMC is unmodeled; real driver timeouts/retries are exercised. No SD maps."
+    limitations = [STORAGE[storage["mode"]]] + LIMITATIONS[1:]
     report = {"schema": 1, "passed": passed, "checks": checks, "wall_seconds": round(elapsed, 3),
               "emulated_seconds_requested": args.seconds, "timed_out": timed_out, "returncode": returncode,
               "firmware": manifest, "boot_metadata": metadata.group(0) if metadata else None,
               "emulator_commit": git("rev-parse", "HEAD"), "emulator_dirty": bool(git("status", "--porcelain")),
               "emulator_binary_sha256": sha(ROOT / "target/release/esp32sim"), "screen": screen,
-              "limitations": limitations, "sd_failure_substitution": not args.full_storage_probe}
+              "limitations": limitations, "storage": {k: v for k, v in storage.items() if k != "files"},
+              "sd_failure_substitution": storage["mode"] == "no-card-substitution"}
     save(output / "result.json", report)
     lines = [f"# Bicino 1.75 capture: {'PASS' if passed else 'FAIL'}", "",
              f"Wall time: {elapsed:.2f}s. Requested emulated time: {args.seconds:g}s.", "",
@@ -227,7 +306,8 @@ def main():
     capture.add_argument("--timeout", type=float, default=45, help="Wall timeout in seconds")
     capture.add_argument("--script", type=Path)
     capture.add_argument("--no-build", action="store_true", help="Reuse binary without checking emulator source changes")
-    capture.add_argument("--full-storage-probe", action="store_true", help="Exercise unsupported SDMMC; expect timeout/delayed boot")
+    capture.add_argument("--full-storage-probe", action="store_true", help="No substitution and no card: the real SDMMC driver meets an empty socket")
+    capture.add_argument("--sd-image", type=Path, help="A FAT image in the microSD socket (tools/bicino_sdcard.py builds one); no substitution")
     capture.add_argument("--emulator-arg", action="append", default=[], help="Extra flag/value; repeat, e.g. --emulator-arg=--log-periph")
     args = parser.parse_args()
     LOCAL.mkdir(parents=True, exist_ok=True)

@@ -1,12 +1,15 @@
 //! Waveshare AMOLED 1.75 prototype: CO5300 pixels and CST9217 single-contact input.
-use esp_soc::board::{BoardEdge, BoardModel, VirtualCycle};
+use esp_soc::board::{BoardEdge, BoardModel, SdSocket, VirtualCycle};
 use esp_soc::devices::co5300::Co5300;
 use crate::i2c::{I2cDevice, Reg8Device, Tca9554, TouchState};
 use std::sync::{Arc, Mutex};
 
 /// Register format and geometry follow seichris/open-bike-computer at 03ea4cb4:
 /// esp32/lib/waveshare_board/{display,cst9217_touch_frame}.hpp and include/hal.hpp.
-/// Power, RTC and codec are initialization stubs; SDMMC and GPS are absent.
+/// Power, RTC and codec are initialization stubs; GPS is absent. The microSD socket is wired for
+/// one-bit SDMMC (`--sd`): CLK GPIO2, CMD GPIO1, D0 GPIO3, D3/legacy CS GPIO41, D1/D2 unused
+/// (seichris/open-bike-computer at f37a084f, include/hal.hpp:221-236 and hardware/README.md,
+/// "ESP32-S3-Touch-AMOLED-1.75 Core Components").
 pub struct WaveshareAmoled175 {
     panel: Co5300,
     touch: Arc<Mutex<TouchState>>,
@@ -62,7 +65,8 @@ impl BoardModel for WaveshareAmoled175 {
     fn input_levels(&self) -> Vec<(u8, bool)> {
         vec![(0, true), (21, !self.touch.lock().expect("CST9217 touch mutex poisoned").down)]
     }
-    fn report(&self) -> String { format!("AMOLED175: frames={} pixels={} size=466x466 power=stub sd=absent", self.panel.frames, self.panel.pixels_written) }
+    fn report(&self) -> String { format!("AMOLED175: frames={} pixels={} size=466x466 power=stub", self.panel.frames, self.panel.pixels_written) }
+    fn sd_socket(&self) -> Option<SdSocket> { Some(SdSocket { clk: 2, cmd: 1, data: [Some(3), None, None, Some(41)] }) }
 }
 
 /// Initialization-only PMIC, with the PWR IRQ acknowledgement the guest actually uses.

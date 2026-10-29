@@ -186,22 +186,22 @@ def start(args):
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", args.port))
+    storage = capture.storage_for(args)
     manifest, firmware, rom = capture.prepare(args)
     output = capture.new_output()
-    command = capture.command_for(args, firmware, rom, output)
+    command = capture.command_for(args, firmware, rom, output, manifest, storage)
     pos = command.index("--max-seconds")
     del command[pos:pos + 2]
     command.remove("--no-reboot")  # Enable the browser reset button; logs still retain guest faults.
     command += ["--web", str(args.port), "--web-dir", str(capture.ROOT / "web")]
     capture.save(output / "command.json", command)
     (output / "command.txt").write_text(capture.shlex.join(command) + "\n")
-    limitations = list(capture.LIMITATIONS)
-    if args.full_storage_probe:
-        limitations[0] = "SDMMC is unmodeled; real driver timeouts/retries run without the SD failure substitution."
+    limitations = [capture.STORAGE[storage["mode"]]] + capture.LIMITATIONS[1:]
     capture.save(output / "manifest.json", {"firmware": manifest, "emulator_commit": capture.git("rev-parse", "HEAD"),
                  "emulator_dirty": bool(capture.git("status", "--porcelain")),
                  "emulator_binary_sha256": capture.sha(capture.ROOT / "target/release/esp32sim"),
-                 "sd_failure_substitution": not args.full_storage_probe, "limitations": limitations})
+                 "storage": storage, "sd_failure_substitution": storage["mode"] == "no-card-substitution",
+                 "limitations": limitations})
     worker_command = [sys.executable, str(Path(__file__).resolve()), "--session", output.name,
                       "--output", str(output), "--port", str(args.port), "--lock-fd", str(lock.fileno())]
     with (output / "session.log").open("wb") as log:
@@ -274,7 +274,8 @@ def main():
     parser.add_argument("--firmware-dir", type=Path)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--script", type=Path, help="Native replay script; guest-time deterministic inputs")
-    parser.add_argument("--full-storage-probe", action="store_true")
+    parser.add_argument("--full-storage-probe", action="store_true", help="No substitution and no card: an empty socket")
+    parser.add_argument("--sd-image", type=Path, help="A FAT image in the microSD socket; no substitution")
     parser.add_argument("--emulator-arg", action="append", default=[])
     parser.add_argument("--output", type=Path, help="screen: PNG output path")
     args = parser.parse_args()

@@ -7,6 +7,10 @@
   `status`, `screen`, `input`, `restart` and `stop` control its owned session.
   Logs and manifests stay in `.local/bicino/live/`. Read `result.json` for bounded
   runs and `scenario-result.json` for navigation; never infer success from a PNG.
+- Storage is explicit (`storage.mode`): the default substitutes `Storage::initSD`,
+  `--full-storage-probe` is an empty socket, and `--sd-image` puts a card image
+  (`tools/bicino_sdcard.py`) behind the real SDMMC driver. Keep no-card and
+  populated-SD results apart.
 - This is an on-demand tool. Do not add emulator builds to the normal firmware
   dev loop or required CI without an explicit request. Never hide simulator
   substitutions or report a simulated screen as physical-device validation.
