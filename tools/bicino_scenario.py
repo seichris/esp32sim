@@ -25,6 +25,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirmation-delay", type=float, default=1,
                         help="Modeled seconds before confirming the code (0 to 100; default 1)")
+    parser.add_argument("--abandon", choices=["connected", "registered"],
+                        help="Negative control: send nothing more after connecting (or after PAIRED) and require "
+                             "the guest to drop the unauthenticated link about 12 modeled seconds later")
     parser.add_argument("--position", default="0,0",
                         help="LAT,LON in degrees for the route and GPS (default 0,0); put it inside an SD map to render one")
     args = parser.parse_args()
@@ -43,6 +46,7 @@ def main():
     checks = {}
     completed = False
     storage = {"mode": "no-card-substitution"}
+    abandon_result = {}
     with contextlib.closing(Guest()) as guest:
         output = Path(guest.state["output"])
         if (output / "manifest.json").exists():
@@ -73,6 +77,24 @@ def main():
                         elif message["time"] >= target:
                             return
             raise TimeoutError("Guest clock did not advance")
+        def guest_time():
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                kind, data = guest.ws.receive()
+                if kind == 1 and (message := json.loads(data)).get("t") == "stat":
+                    return message["time"]
+            raise TimeoutError("Guest clock did not advance")
+        def abandoned(since):
+            """Send nothing; the modeled seconds from `since` until the guest drops the link."""
+            offset = len((output / "serial.log").read_text(errors="replace"))
+            now = since
+            while now - since < 30:
+                now = guest_time()
+                if "BLE: Disconnecting unauthenticated client after timeout" in (output / "serial.log").read_text(errors="replace")[offset:]:
+                    guest.wait_line(lambda line: " disconnected" in line)
+                    guest.connected = False
+                    return now - since
+            return None
         def wait_serial(pattern, timeout=90):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -89,6 +111,7 @@ def main():
                 for name, ok in capture.sd_checks(boot, storage).items():
                     check(name, ok)
             guest.connect(185)
+            connected_at = guest_time()
             check("mtu_185", guest.mtu == 185)
             service = next(s for s in guest.discover() if s["uuid"] == "9d7b3f30-3f6a-4d1c-9f6d-1fbf0e8b1800")
             chars = {c["uuid"]: c for c in service["characteristics"]}
@@ -100,6 +123,12 @@ def main():
                 return guest.wait_notification(auth["handle"], timeout=30).decode()
             info = auth_send("INFO").split("|")
             check("fresh_unclaimed_guest", info[:2] == ["DEVICE", "2"] and info[3] == "0")
+            if args.abandon == "connected":
+                dropped = abandoned(connected_at)
+                abandon_result["seconds_to_drop"] = dropped
+                check("abandoned_link_dropped_after_window", dropped is not None and 11 <= dropped <= 14)
+                completed = True
+                return 0
             device = info[2]
             before = (output / "serial.log").read_text(errors="replace")
             guest.write(gps["handle"], struct.pack("<iiH", 0, 0, 90))
@@ -131,6 +160,14 @@ def main():
             guest.ws.send({"t": "btn", "pin": 0, "v": 0})
             check("button_confirmation", guest.wait_notification(auth["handle"], 10).decode() == "PAIR_READY|" + device)
             check("paired", auth_send(confirm).startswith("PAIRED|" + device + "|"))
+            if args.abandon == "registered":
+                # Registration restarts the unauthenticated window: a registered client that never
+                # authenticates keeps the link for the full window, then loses it.
+                dropped = abandoned(guest_time())
+                abandon_result["seconds_to_drop"] = dropped
+                check("registered_link_dropped_after_window", dropped is not None and 11 <= dropped <= 14)
+                completed = True
+                return 0
             def authenticate(client_nonce):
                 server = auth_send(f"OWNER|{owner}|{client_nonce}").split("|")
                 check("server_proof_" + client_nonce[:2], server[:3] == ["SERVER2", device, client_nonce] and
@@ -223,6 +260,7 @@ def main():
                      "sd-card": "Modelled SD card through the real SDMMC driver; map from the image's active selection."}
             report = {"schema": 1, "passed": passed, "checks": checks,
                       "confirmation_delay_seconds": args.confirmation_delay, "position_microdegrees": [lat, lon],
+                      "abandon": args.abandon, **({"abandon_seconds_to_drop": abandon_result.get("seconds_to_drop")} if args.abandon else {}),
                       "physical_iphone": False, "physical_board": False,
                       "storage": {k: v for k, v in storage.items() if k != "files"},
                       "sd_maps": passed and storage["mode"] == "sd-card" and bool(storage.get("active_map")),

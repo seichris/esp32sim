@@ -253,6 +253,14 @@ To reproduce the supplied firmware's longer-confirmation failure, restart to a
 fresh guest and run `python3 tools/bicino_scenario.py --confirmation-delay 13`.
 The flag uses modeled seconds; it does not bypass the physical-confirmation gate.
 
+Two negative controls check the unauthenticated-link deadline. With
+`--abandon connected` the client sends nothing after its first INFO; with
+`--abandon registered` it stops right after `PAIRED`. Each requires the guest
+to drop the link 11 to 14 modeled seconds after that point and records the
+measured time as `abandon_seconds_to_drop`. Firmware that counts the window
+from the connection fails the second control: it drops a registered client
+early.
+
 The scenario uses a public synthetic owner identity, real P-256/HKDF/HMAC and
 AES-GCM, a modeled BOOT press after rendering the comparison screen, and neutral
 coordinates. It waits in modeled time and verifies the physical-confirmation requirement
