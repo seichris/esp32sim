@@ -2,6 +2,7 @@
 use esp_soc::board::{BoardEdge, BoardModel, SdSocket, VirtualCycle};
 use esp_soc::devices::co5300::Co5300;
 use crate::i2c::{I2cDevice, Reg8Device, Tca9554, TouchState};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Register format and geometry follow seichris/open-bike-computer at 03ea4cb4:
@@ -13,13 +14,15 @@ use std::sync::{Arc, Mutex};
 pub struct WaveshareAmoled175 {
     panel: Co5300,
     touch: Arc<Mutex<TouchState>>,
+    /// touch packets the guest read while they reported a contact (the end-of-run report)
+    contacts: Arc<AtomicU64>,
     cycle: VirtualCycle,
     pending: Vec<BoardEdge>,
     edges: Vec<BoardEdge>,
 }
 
 impl WaveshareAmoled175 {
-    pub fn new() -> Self { Self { panel: Co5300::new(466, 466, 6), touch: Default::default(), cycle: 0, pending: Vec::new(), edges: Vec::new() } }
+    pub fn new() -> Self { Self { panel: Co5300::new(466, 466, 6), touch: Default::default(), contacts: Default::default(), cycle: 0, pending: Vec::new(), edges: Vec::new() } }
 }
 impl Default for WaveshareAmoled175 { fn default() -> Self { Self::new() } }
 
@@ -31,7 +34,7 @@ impl BoardModel for WaveshareAmoled175 {
     }
     fn i2c_devices(&mut self) -> Vec<(u8, u8, Box<dyn I2cDevice>)> {
         vec![
-            (0, 0x5a, Box::new(Cst9217::new(self.touch.clone()))),
+            (0, 0x5a, Box::new(Cst9217::new(self.touch.clone(), self.contacts.clone()))),
             (0, 0x20, Box::new(Tca9554::register_ram_stub())),
             (0, 0x34, Box::new(Axp2101InitStub::new())),
             (0, 0x51, Box::new(Reg8Device::new("pcf85063a-initialization-stub", &[]))),
@@ -65,7 +68,9 @@ impl BoardModel for WaveshareAmoled175 {
     fn input_levels(&self) -> Vec<(u8, bool)> {
         vec![(0, true), (21, !self.touch.lock().expect("CST9217 touch mutex poisoned").down)]
     }
-    fn report(&self) -> String { format!("AMOLED175: frames={} pixels={} size=466x466 power=stub", self.panel.frames, self.panel.pixels_written) }
+    fn report(&self) -> String {
+        format!("AMOLED175: frames={} pixels={} size=466x466 power=stub touch_contact_reads={}", self.panel.frames, self.panel.pixels_written, self.contacts.load(Ordering::Relaxed))
+    }
     fn sd_socket(&self) -> Option<SdSocket> { Some(SdSocket { clk: 2, cmd: 1, data: [Some(3), None, None, Some(41)] }) }
 }
 
@@ -89,10 +94,10 @@ impl I2cDevice for Axp2101InitStub {
 }
 
 struct Cst9217 {
-    ptr: u16, phase: u8, packet: [u8; 15], touch: Arc<Mutex<TouchState>>,
+    ptr: u16, phase: u8, packet: [u8; 15], touch: Arc<Mutex<TouchState>>, contacts: Arc<AtomicU64>,
 }
 impl Cst9217 {
-    fn new(touch: Arc<Mutex<TouchState>>) -> Self { Self { ptr: 0, phase: 0, packet: [0; 15], touch } }
+    fn new(touch: Arc<Mutex<TouchState>>, contacts: Arc<AtomicU64>) -> Self { Self { ptr: 0, phase: 0, packet: [0; 15], touch, contacts } }
 }
 impl I2cDevice for Cst9217 {
     fn start(&mut self, read: bool) -> bool {
@@ -100,7 +105,7 @@ impl I2cDevice for Cst9217 {
         else {
             let mut t = self.touch.lock().expect("CST9217 touch mutex poisoned");
             if t.release_pending && t.seen { t.down = false; t.release_pending = false; }
-            if t.down { t.seen = true; }
+            if t.down { t.seen = true; self.contacts.fetch_add(1, Ordering::Relaxed); }
             self.packet = [0; 15];
             self.packet[0] = if t.down { 6 } else { 0 };
             self.packet[1] = (t.x >> 4) as u8;
@@ -183,5 +188,6 @@ mod tests {
         device.start(false); device.write(0xd0); device.write(0); device.start(true);
         let packet: Vec<_> = (0..15).map(|_| device.read()).collect();
         assert_eq!(packet[5..7], [0, 0xab]);
+        assert!(board.report().ends_with("touch_contact_reads=1"), "one read reported the contact");
     }
 }

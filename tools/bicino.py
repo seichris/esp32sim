@@ -259,6 +259,10 @@ def run(args):
     except (OSError, ValueError, struct.error, zlib.error) as error:
         checks["nonblank_screen"] = False
         screen = {"error": str(error)}
+    if args.script and re.search(r"^\s*[\d.]+\s+touch\s", args.script.read_text(), re.MULTILINE):
+        # A scripted touch counts once the firmware has read the CST9217 packet reporting it.
+        contacts = re.search(r"touch_contact_reads=(\d+)", diagnostics)
+        checks["touch_contact_read"] = bool(contacts) and int(contacts.group(1)) > 0
     if storage["mode"] == "sd-card":
         checks.update(sd_checks(serial, storage))
         storage["reads"] = sd_reads(diagnostics, storage.get("files", []))
