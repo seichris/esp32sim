@@ -215,10 +215,10 @@ impl SocBus {
         let total = 28 + frame.len() + 4;
         if !d.owner_dma || d.eof || d.buf == 0 || d.size < total as u32 { return None; }
         let range = dma_range(d.buf, total)?;
-        let chan = self.periph.wifi.link.ap().unwrap().cfg.channel as u32;
+        let (chan, rssi) = { let (c, r) = self.periph.wifi.link.ap().unwrap().rx_meta(frame); (c as u32, i32::from(r)) };
         let broadcast = frame.get(4).is_some_and(|v| v & 1 != 0);
         // wDev_ProcessRxSucData subtracts the classic 96 dB RSSI offset.
-        let w0 = 56 | (1 << 28) | if broadcast { 0 } else { 1 << 29 };
+        let w0 = ((rssi + 96) as u32 & 0xff) | (1 << 28) | if broadcast { 0 } else { 1 << 29 };
         // Classic rx_ctrl is 28 bytes: noise at +8, channel at +10, sig_len/state at +24.
         let mut bytes = Vec::with_capacity(total);
         for w in [
@@ -366,6 +366,35 @@ mod tests {
             assert_eq!(b.periph.wifi.link.rx_dropped(), 0);
             assert_eq!(b.periph.wifi.irq_sources(), u64::from(valid));
             assert_eq!(b.irq_dirty, valid);
+        }
+    }
+
+    /// A frame from a network around reaches the classic RX descriptor with that network's channel
+    /// and RSSI (`VirtualAp::rx_meta`): the RSSI plus the classic 96 dB offset in word 0's low byte,
+    /// the channel at +10 (word 2 bits 16-23, next to the -90 dBm noise floor); a frame from the
+    /// access point keeps its channel and -40 dBm (56).
+    #[test]
+    fn classic_rx_ctrl_carries_a_nearby_networks_channel_and_rssi() {
+        use xtensa_lx7::bus::Bus;
+        let home = [0x02, 1, 2, 3, 4, 5];
+        for (from, chan, rssi) in [(home, 1u32, -60i32), ([2, 0x53, 0x49, 0x4d, 0, 1], 6, -40)] {
+            let mut b = SocBus::new(0, [0; 6]);
+            b.periph.wifi.link.attach(Some(VirtualAp::new(wifi::ApConfig::parse("ssid=demo,chan=6,bssid=02:53:49:4d:00:01").unwrap(), false)), None);
+            let left_out = b.periph.wifi.link.set_beacons(vec![wifi::BeaconAp { ssid: "Home".into(), bssid: home, channel: 1, rssi: -60, secure: true }]);
+            assert_eq!(left_out, Some(vec![]));
+            let mut frame = [0u8; 24];
+            frame[0] = 0x80;                                                     // beacon
+            frame[4..10].fill(0xff);
+            frame[10..16].copy_from_slice(&from);
+            let (desc, buf) = (0x3ffb_0000, 0x3ffb_1000);
+            b.write32(desc, (1 << 31) | 0xfff).unwrap();                         // owner DMA, size 4095
+            b.write32(desc + 4, buf).unwrap();
+            b.write32(desc + 8, desc + 12).unwrap();
+            b.periph.wifi.write(0x088, desc);
+            b.periph.wifi.write(0x084, 1 << 31);
+            assert!(b.wifi_rx_fill(&frame, 1234, false).is_some());
+            assert_eq!(b.read32(buf).unwrap() & 0xff, (rssi + 96) as u32, "RSSI of {from:02x?}");
+            assert_eq!(b.read32(buf + 8).unwrap(), 0xa6 | (chan << 16), "channel of {from:02x?}");
         }
     }
 

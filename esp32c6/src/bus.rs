@@ -157,6 +157,7 @@ impl SocBus {
         }
         if self.periph.sha.dma_pending { self.sha_dma_write(a); }
         if matches!(a >> 12, 0x60015 | 0x60080) || a == PERIPH_BASE + 0x960ac { self.parlio_dma_write(a); }
+        if a >> 12 == 0x60017 { self.sdio_slc_write(); }
         if old_drive != (self.periph.gpio.enable, self.periph.gpio.out) {
             self.deliver_gpio_output();
         }
@@ -290,7 +291,7 @@ impl SocBus {
     fn wifi_rx_deliver(&mut self, frame: &[u8], now_us: u64) {
         const RX_CTRL: usize = 92;
         let mac = &self.periph.wifi_mac;
-        if mac.rx_next == 0 { self.periph.wifi_mac.link.drop_rx(); return; }
+        if mac.rx_next == 0 { self.periph.wifi_mac.link.drop_rx_unarmed(); return; }
         let desc = mac.addr(mac.rx_next);
         let log = mac.link.ap().is_some_and(|ap| ap.log);
         let (dw0, buf, next) = (self.sram32(desc), self.sram32(desc.wrapping_add(4)), self.sram32(desc.wrapping_add(8)));
@@ -299,7 +300,8 @@ impl SocBus {
         if dw0 & (1 << 31) == 0 || dw0 & (1 << 30) != 0 || ((dw0 & 0x3fff) as usize) < total { self.periph.wifi_mac.link.drop_rx(); return; }
         let group = frame.len() >= 5 && frame[4] & 1 == 1;
         let mut words = [0u32; RX_CTRL / 4];
-        words[0] = 0xd8 | 1 << 28 | if group { 0 } else { 1 << 29 };   // rssi -40 dBm, 1 Mbps legacy; match 0, and match 1 for our own address
+        let rssi = self.periph.wifi_mac.link.ap().map_or(-40i8, |ap| ap.rx_meta(frame).1);
+        words[0] = (rssi as u8 as u32) | 1 << 28 | if group { 0 } else { 1 << 29 };   // rssi (-40 dBm for the access point), 1 Mbps legacy; match 0, and match 1 for our own address
         words[3] = now_us as u32;                                       // timestamp
         words[5] = 0xa6;                                                // noise floor -90 dBm
         words[21] = (frame.len() as u32 + 4) & 0x3fff;                  // byte 84: the frame's length with its FCS

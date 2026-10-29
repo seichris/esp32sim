@@ -589,16 +589,44 @@ impl SocBus {
         if let Some(frame) = self.periph.wifi.link.next_rx(now_us, busy) { self.wifi_rx_deliver(&frame, now_us); }
     }
 
+    /// The receive descriptor at `desc` (a masked pointer from `rx_next`) as the DMA would use it for a
+    /// `total`-byte frame, if software armed it: owned, with a buffer, and with room for the frame.
+    /// `None` means the receive DMA is stopped there.
+    fn wifi_rx_armed(&mut self, desc: u32, total: usize) -> Option<(u32, u32, u32, u32)> {
+        if desc == 0 { return None; }
+        let d = desc | crate::periph::DMA_ADDR_BASE;
+        let dw0 = self.read32_unpriced(d).unwrap_or(0);
+        let buf = self.read32_unpriced(d + 4).unwrap_or(0);
+        let next = self.read32_unpriced(d + 8).unwrap_or(0);
+        (dw0 & (1 << 31) != 0 && buf != 0 && (dw0 & 0xfff) as usize >= total).then_some((d, dw0, buf, next))
+    }
+
     /// Write one received frame into the next RX descriptor (rx_ctrl header + frame + FCS) and raise the RX event.
     #[allow(clippy::identity_op, reason = "rx_state zero remains visible in the packed descriptor layout")]
     fn wifi_rx_deliver(&mut self, frame: &[u8], now_us: u64) {
-        let desc = self.periph.wifi.rx_next | crate::periph::DMA_ADDR_BASE;
-        if desc == 0 { self.periph.wifi.link.drop_rx(); return; }
-        let dw0 = self.read32_unpriced(desc).unwrap_or(0); let buf = self.read32_unpriced(desc + 4).unwrap_or(0); let next = self.read32_unpriced(desc + 8).unwrap_or(0);
-        let size = (dw0 & 0xfff) as usize;
         let total = 48 + frame.len() + 4;
-        if dw0 & (1 << 31) == 0 || buf == 0 || size < total { self.periph.wifi.link.drop_rx(); return; }
-        let (chan, log) = { let ap = self.periph.wifi.link.ap().unwrap(); (ap.cfg.channel as u32, ap.log) };
+        // The DMA can only advance while the descriptor at `rx_next` is one software armed: owned, with a
+        // buffer, and with room for the whole frame. A driver that hands the hardware one short list at a
+        // time (Arduino-ESP32 does: four descriptors, the last one's `next` null) leaves the next word of
+        // the list empty by the time the next frame is due, and writes the base of the *new* list before
+        // that frame arrives. So a descriptor that is not usable means the receive DMA has stopped: take
+        // the pending base as the new head and try once more. Frames that still find nothing are lost, as
+        // they are when a radio's RX FIFO is full.
+        let mut armed = self.wifi_rx_armed(self.periph.wifi.rx_next, total);
+        if armed.is_none() && self.periph.wifi.rx_handover {
+            self.periph.wifi.rx_next = self.periph.wifi.rx_base;
+            self.periph.wifi.rx_handover = false;
+            armed = self.wifi_rx_armed(self.periph.wifi.rx_next, total);
+        }
+        // Neither a head nor a pending base: the driver has not handed the radio a receive ring yet, which
+        // is not a lost frame. Counted apart, and only after the hand-over above has had its chance (#276).
+        if self.periph.wifi.rx_next == 0 { self.periph.wifi.link.drop_rx_unarmed(); return; }
+        let Some((desc, dw0, buf, next)) = armed else {
+            if self.periph.wifi.log { eprintln!("[wifi] RX dropped: rx_next {:#x} is not a usable descriptor (base {:#x}, last {:#x})", self.periph.wifi.rx_next, self.periph.wifi.rx_base & 0xf_ffff, self.periph.wifi.rx_last); }
+            self.periph.wifi.link.drop_rx(); return;
+        };
+        // A network around's frames carry its own channel and signal (`VirtualAp::rx_meta`)
+        let (chan, rssi, log) = { let ap = self.periph.wifi.link.ap().unwrap(); let (c, r) = ap.rx_meta(frame); (c as u32, r, ap.log) };
         let mut b = Vec::with_capacity(total);
         // rx_ctrl word 0 (silicon: a real broadcast beacon reads 0x111b20ad — bit 28 set, signed rssi in the low
         // byte). The MAC has already address-filtered, so every delivered frame is "for us"; use the same flags
@@ -610,7 +638,7 @@ impl SocBus {
         // filter-match nibble: bit 28 is the "accepted by the address filter" bit the blob's RX path
         // requires (silicon: a broadcast beacon reads 0x111b20ad); unicast frames add bit 29.
         let fm = if bcast { 1u32 << 28 } else { (1u32 << 28) | (1u32 << 29) };
-        let w0: u32 = fm | (0xd8u32 & 0xff);   // rssi -40 dBm, 1 Mbps, legacy
+        let w0: u32 = fm | (rssi as u8 as u32);   // rssi as the network reports it (`rx_meta`), 1 Mbps, legacy
         let w2: u32 = (chan << 16) | (chan << 20);                                        // channel, secondary
         let w5: u32 = 0xa6;                                                                // noise floor -90
         let w11: u32 = ((frame.len() + 4) as u32 & 0xfff) | (0 << 24);                    // sig_len (incl. FCS), rx_state OK
@@ -622,7 +650,7 @@ impl SocBus {
         let ndw0 = (dw0 & !(0xfff << 12)) | ((total as u32) << 12) | (1 << 30) | (1 << 31);   // length; owner AND has_data set (verified on silicon 2026-08-25: dw0=0xc0..)
         let _ = self.write32_unpriced(desc, ndw0);
         let w = &mut self.periph.wifi;
-        w.rx_last = (desc & 0xf_ffff) | (1 << 24); w.rx_next = next & 0xf_ffff; w.link.rx_delivered(desc); w.events |= (1 << 14) | (1 << 24);   // RX data (wDev_ProcessFiq tests 0x1004000)   // registers hold masked descriptor addrs; rx_last has a 0x01 prefix (silicon)
+        w.rx_last = (desc & 0xf_ffff) | (1 << 24); w.rx_next = next & 0xf_ffff; w.rx_handover = false; w.link.rx_delivered(desc); w.events |= (1 << 14) | (1 << 24);   // RX data (wDev_ProcessFiq tests 0x1004000)   // registers hold masked descriptor addrs; rx_last has a 0x01 prefix (silicon)
         if log { let d = crate::wifi::describe(frame); if d.contains("auth")||d.contains("assoc") { eprintln!("[wifi] RX AUTH/ASSOC -> desc {:#010x} buf {:#010x} {}", desc, buf, d); } else { eprintln!("[wifi] RX -> desc {:#010x} {}", desc, d); } }
         self.irq_dirty = true;
     }
@@ -656,14 +684,25 @@ impl CacheResource {
 }
 
 impl SocBus {
+    /// The radio's analog blocks, whose registers Espressif's SVD declares 8 bits wide: FE2, FE,
+    /// NRX and BB (IDF v5.5.4 components/soc/esp32s3/register/soc/reg_base.h, DR_REG_FE2_BASE
+    /// 0x6000_5000, DR_REG_FE_BASE 0x6000_6000, DR_REG_NRX_BASE 0x6001_CC00, DR_REG_BB_BASE
+    /// 0x6001_D000). esp-hal 1.2.2's sleep setup, run from `esp_hal::init`, clears bits of
+    /// NRXPD_CTRL (NRX + 0xd4, IDF v5.5.4 components/soc/esp32s3/include/soc/nrx_reg.h) with
+    /// l8ui/s8i. Sub-word accesses there are served from the containing word.
+    fn radio_narrow(addr: u32) -> bool {
+        matches!(addr & !0xfff, 0x6000_5000 | 0x6000_6000 | 0x6001_d000) || (0x6001_cc00..0x6001_d000).contains(&addr)
+    }
     // Const specialization keeps origin checks and CPU pricing out of DMA/host accessors.
     fn read8_access<const CPU: bool>(&mut self, addr: u32) -> Result<u8, Fault> {
+        if Self::radio_narrow(addr) { return Ok((self.periph_read(addr & !3) >> (8 * (addr & 3))) as u8); }
         if Self::is_periph(addr) { self.last_fault = Some((addr, false)); return Err(Fault::Prohibited); }
         let Some(e) = self.lookup(addr) else { self.last_fault = Some((addr, false)); return Err(Fault::Unmapped) };
         if CPU { self.price_cached_data(e, addr, 1, false); }
         Ok(self.buf(e.src as u8)[e.off as usize + (addr - e.lo) as usize])
     }
     fn read16_access<const CPU: bool>(&mut self, addr: u32) -> Result<u16, Fault> {
+        if Self::radio_narrow(addr) && addr & 1 == 0 { return Ok((self.periph_read(addr & !3) >> (8 * (addr & 2))) as u16); }
         if Self::is_periph(addr) { self.last_fault = Some((addr, false)); return Err(Fault::Prohibited); }
         match self.lookup(addr) {
             Some(e) if e.hi - addr >= 2 => { if CPU { self.price_cached_data(e, addr, 2, false); } let o = e.off as usize + (addr - e.lo) as usize; Ok(u16::from_le_bytes(self.buf(e.src as u8)[o..o + 2].try_into().unwrap())) }
@@ -685,7 +724,14 @@ impl SocBus {
     fn write8_access<const CPU: bool>(&mut self, addr: u32, v: u8) -> Result<(), Fault> {
         // S3 register writes are modelled only as aligned words (TRM §15.6.6).
         // Reject unsupported widths before reading a device or advancing its time.
-        // This is an explicit emulator policy, not a model of optional PMS IRQs.
+        // This is an explicit emulator policy, not a model of optional PMS IRQs. The radio's
+        // analog registers are 8 bits wide (`radio_narrow`).
+        if Self::radio_narrow(addr) {
+            let (word, shift) = (addr & !3, 8 * (addr & 3));
+            let old = self.periph_read(word);
+            self.periph_write(word, (old & !(0xff << shift)) | (u32::from(v) << shift));
+            return Ok(());
+        }
         if Self::is_periph(addr) { self.last_fault = Some((addr, true)); return Err(Fault::Prohibited); }
         match self.lookup(addr) {
             Some(e) if e.writable != 0 => { if CPU { self.price_cached_data(e, addr, 1, true); } let rel = (addr - e.lo) as usize; self.buf_mut(e.src as u8)[e.off as usize + rel] = v; if e.code != 0 { self.bump(e.vbase, rel, 1); } Ok(()) }
@@ -693,6 +739,12 @@ impl SocBus {
         }
     }
     fn write16_access<const CPU: bool>(&mut self, addr: u32, v: u16) -> Result<(), Fault> {
+        if Self::radio_narrow(addr) && addr & 1 == 0 {
+            let (word, shift) = (addr & !3, 8 * (addr & 2));
+            let old = self.periph_read(word);
+            self.periph_write(word, (old & !(0xffff << shift)) | (u32::from(v) << shift));
+            return Ok(());
+        }
         if Self::is_periph(addr) { self.last_fault = Some((addr, true)); return Err(Fault::Prohibited); }
         match self.lookup(addr) {
             Some(e) if e.writable != 0 && e.hi - addr >= 2 => { if CPU { self.price_cached_data(e, addr, 2, true); } let rel = (addr - e.lo) as usize; let o = e.off as usize + rel; self.buf_mut(e.src as u8)[o..o + 2].copy_from_slice(&v.to_le_bytes()); if e.code != 0 { self.bump(e.vbase, rel, 2); } Ok(()) }

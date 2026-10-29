@@ -5,6 +5,7 @@
 //! chip-neutral models a board is built from.
 pub mod ble;
 pub mod board;
+pub mod camera;
 mod console;
 pub mod debug;
 pub mod devices;
@@ -24,6 +25,7 @@ pub mod pins;
 pub mod png;
 pub mod soc;
 pub mod uart;
+pub mod usb_host;
 pub mod web;
 pub mod wifi;
 

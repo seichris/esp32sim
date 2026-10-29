@@ -113,19 +113,22 @@ impl Device for Dport {
     }
 }
 
+#[cfg(test)]
+#[path = "psram_spi_tests.rs"]
+mod psram_spi_tests;
+
 pub struct ClassicSpi(pub SpiMem);
 impl ClassicSpi {
     fn new(command: bool) -> Self {
         let mut s = SpiMem::new(command);
-        s.has_psram = false;
+        s.enable_classic_quad();
         s.addr_msb_aligned = true;
         Self(s)
     }
     // IDF v5.5.4 soc/esp32/register/soc/spi_reg.h -> esp32s3 spi_mem_reg.h offsets:
     // RD_STATUS 0x10->0x2c, CTRL2 0x14->0x10, CLOCK 0x18->0x14, USER..MISO_DLEN 0x1c-0x2c -> 0x18-0x28,
-    // W0..W15 0x80-0xbc -> 0x58-0x94. Not remapped: the classic CACHE_SCTRL (+0x54) lands on the shared
-    // FSM slot and reads 0, and SRAM_CMD..SLV_RD_BIT (+0x58-0x64) land on W0..W3; both are used only by
-    // the PSRAM path on SPI0, which the classic model does not have.
+    // W0..W15 0x80-0xbc -> 0x58-0x94. SRAM/cache registers bypass the shared
+    // engine below: they must not alias its FSM/FIFO.
     fn off(off: u32) -> u32 {
         match off {
             0x10 => 0x2c,
@@ -143,9 +146,14 @@ impl ClassicSpi {
 }
 impl Device for ClassicSpi {
     fn read(&mut self, off: u32) -> u32 {
+        if (0x54..=0x7c).contains(&off) { return self.0.regs.read(off); }
         self.0.read(Self::off(off))
     }
     fn write(&mut self, off: u32, v: u32) -> WriteEffect {
+        if (0x54..=0x7c).contains(&off) {
+            self.0.regs.write(off, v);
+            return WriteEffect::NONE;
+        }
         if self.0.write(Self::off(off), v) && self.0.is_spi1 {
             WriteEffect::SPI_EXEC
         } else {
@@ -154,6 +162,24 @@ impl Device for ClassicSpi {
     }
     fn debug(&mut self, on: bool) {
         self.0.log = on;
+    }
+}
+
+impl ClassicSpi {
+    // IDF v5.1.4 soc/esp32/include/soc/spi_reg.h:903-1016; functional QPI
+    // cache contract, not a cache-line/timing model. Delay-clock (DCLK) runs take
+    // this gate too: their startup commands are decoded in esp-periph spi_mem.rs,
+    // and the speed-dependent SRAM_DUMMY_CYCLELEN (bits 14-21; IDF v5.5.1
+    // esp_psram/esp32/esp_psram_impl_quad.c:1107) is not checked.
+    pub(crate) fn sram_cache_ready(&self, write: bool) -> bool {
+        let s = self.0.regs.read(0x54);
+        let command = self.0.regs.read(if write { 0x60 } else { 0x5c });
+        let required = (1 << 2) | (1 << 4) | (1 << if write { 28 } else { 5 });
+        self.0.regs.read(0x34) & 2 == 0
+            && s & required == required && s & (1 << 1) == 0
+            && (s >> 22) & 63 == 23
+            && command >> 28 == 7
+            && command & 0xffff == if write { 0x38 } else { 0xeb }
     }
 }
 
@@ -376,6 +402,15 @@ impl ClassicGpio {
             self.gpio.set_input(pin as u8, false);
         }
     }
+    /// Physical matrix input, retaining inversion. IDF v4.4.7 gpio_reg.h:
+    /// GPIO_FUNCm_IN_SEL_CFG source bits 0..5, invert bit 6, matrix-select bit 7.
+    /// Unlike the non-inverted input_pin helper, DVP data can use inversion.
+    pub(crate) fn matrix_input_route(&self, signal: usize) -> Option<(u8, bool)> {
+        let cfg = *self.gpio.func_in_sel.get(signal)?;
+        let pin = (cfg & 0x3f) as usize;
+        (cfg & (1 << 7) != 0 && pin < 40 && self.matrix_pad(pin) && self.input_enabled(pin))
+            .then_some((pin as u8, cfg & (1 << 6) != 0))
+    }
     pub fn input_pin(&self, signal: usize) -> Option<u8> {
         esp_soc::pins::ChipPins::ESP32.routes(&self.gpio, &self.route_mux).input_pin(signal)
             .or_else(|| Self::direct_pin(signal).filter(|&pin| (self.mux(pin) >> 12) & 7 == 1 && self.input_enabled(pin)).map(|p| p as u8))
@@ -584,8 +619,8 @@ impl Device for ClassicRtc {
         if off == 0x48 {
             self.0.ram.write(0x44, self.0.ram.read(0x44) & !v);
         } else if off == 0x38 {
-            // WAKEUP_CAUSE[10:0] is read-only; wake events are not modeled here.
-            self.0.ram.write(0x34, v & (0xfff << 11));
+            // WAKEUP_CAUSE[10:0] is read-only; EXT0 wake sets it in the bus.
+            self.0.ram.write(0x34, (v & (0xfff << 11)) | (self.0.ram.read(0x34) & 0x7ff));
         } else if off == 0x100 {
             // IDF v5.5.4 register/soc/rtc_cntl_reg.h:2017-2039: START bit 8,
             // FINISH bit 31, result +0x104. Completion is produced by the bus on START;
@@ -764,7 +799,7 @@ impl Peripherals {
             analog: crate::wifi::Analog::default(),
             fe: crate::wifi::FrontEnd::default(),
             adc: ClassicAdc::new(),
-            i2s: Default::default(),
+            i2s: [crate::i2s::ClassicI2s::for_port(0), crate::i2s::ClassicI2s::for_port(1)],
         };
         for uart in &mut p.uart { uart.write(0x20, 1 << 27); }
         p.sync_crypto();
@@ -884,6 +919,11 @@ impl Peripherals {
             // IDF v5.5.4 register/soc/dport_reg.h:947,965 (I2S clocks),
             // 982,1000 (resets). Cache on writes, not in the per-tick DMA loop.
             for (port, bit) in [4, 21].into_iter().enumerate() {
+                // Camera DMA must not survive a peripheral reset. Keep the
+                // established PCM reset behavior unchanged in this slice.
+                if self.dport.ram.read(0xc4) & (1 << bit) != 0 && self.i2s[port].camera_rx().is_some() {
+                    self.i2s[port] = crate::i2s::ClassicI2s::for_port(port);
+                }
                 self.i2s[port].clock_enabled = self.dport.ram.read(0xc0) & (1 << bit) != 0
                     && self.dport.ram.read(0xc4) & (1 << bit) == 0;
             }
