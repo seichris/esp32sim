@@ -21,6 +21,13 @@ pub struct WaveshareAmoled175 {
     edges: Vec<BoardEdge>,
 }
 
+/// CST9217 TP_INT, active low: GPIO11 on the vendor schematic. Firmware before
+/// seichris/open-bike-computer 73d2f9ad used GPIO21 (the QMI8658 INT2 net), which only worked
+/// while it polled the controller; at f37a084f `readTouch` reads after this edge, while a
+/// contact is active, or in a bounded follow-up window (include/hal.hpp:213-215,
+/// lib/panel/WAVESHARE_AMOLED_175.cpp).
+const TP_INT: u8 = 11;
+
 impl WaveshareAmoled175 {
     pub fn new() -> Self { Self { panel: Co5300::new(466, 466, 6), touch: Default::default(), contacts: Default::default(), cycle: 0, pending: Vec::new(), edges: Vec::new() } }
 }
@@ -55,7 +62,7 @@ impl BoardModel for WaveshareAmoled175 {
         // Mounted coordinates -> native panel -> half-turned sensor axes.
         let mut t = self.touch.lock().expect("CST9217 touch mutex poisoned");
         t.update(y.min(465), 465 - x.min(465), down);
-        let edge = BoardEdge { cycle: self.cycle.saturating_add(1 + u64::from(!self.pending.is_empty())), pin: 21, level: !down };
+        let edge = BoardEdge { cycle: self.cycle.saturating_add(1 + u64::from(!self.pending.is_empty())), pin: TP_INT, level: !down };
         if self.pending.len() < 2 { self.pending.push(edge); } else { self.pending[1] = edge; }
     }
     fn touch_at(&mut self, cycle: VirtualCycle, x: u16, y: u16, down: bool) { self.advance_to(cycle); self.touch(x, y, down); }
@@ -66,7 +73,7 @@ impl BoardModel for WaveshareAmoled175 {
     }
     fn take_edges(&mut self) -> Vec<BoardEdge> { std::mem::take(&mut self.edges) }
     fn input_levels(&self) -> Vec<(u8, bool)> {
-        vec![(0, true), (21, !self.touch.lock().expect("CST9217 touch mutex poisoned").down)]
+        vec![(0, true), (TP_INT, !self.touch.lock().expect("CST9217 touch mutex poisoned").down)]
     }
     fn report(&self) -> String {
         format!("AMOLED175: frames={} pixels={} size=466x466 power=stub touch_contact_reads={}", self.panel.frames, self.panel.pixels_written, self.contacts.load(Ordering::Relaxed))
@@ -172,9 +179,9 @@ mod tests {
         let mut devices = board.i2c_devices();
         let (_, _, device) = devices.iter_mut().find(|(_, a, _)| *a == 0x5a).unwrap();
         board.touch(135, 415, true);
-        assert!(board.input_levels().contains(&(21, false)));
+        assert!(board.input_levels().contains(&(11, false)));
         board.advance_to(1);
-        assert_eq!(board.take_edges(), [BoardEdge { cycle: 1, pin: 21, level: false }]);
+        assert_eq!(board.take_edges(), [BoardEdge { cycle: 1, pin: 11, level: false }]);
         device.start(false); device.write(0xd0); device.write(0); device.start(true);
         let packet: Vec<_> = (0..15).map(|_| device.read()).collect();
         assert_eq!(packet[0], 6);
@@ -182,9 +189,9 @@ mod tests {
         assert_eq!(u16::from(packet[1]) << 4 | u16::from(packet[3] >> 4), 415);
         assert_eq!(u16::from(packet[2]) << 4 | u16::from(packet[3] & 15), 330);
         board.touch(135, 415, false);
-        assert!(board.input_levels().contains(&(21, true)));
+        assert!(board.input_levels().contains(&(11, true)));
         board.advance_to(2);
-        assert_eq!(board.take_edges(), [BoardEdge { cycle: 2, pin: 21, level: true }]);
+        assert_eq!(board.take_edges(), [BoardEdge { cycle: 2, pin: 11, level: true }]);
         device.start(false); device.write(0xd0); device.write(0); device.start(true);
         let packet: Vec<_> = (0..15).map(|_| device.read()).collect();
         assert_eq!(packet[5..7], [0, 0xab]);

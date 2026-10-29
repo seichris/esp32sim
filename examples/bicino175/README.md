@@ -285,7 +285,7 @@ describe the native boundary.
 - The CO5300 model receives real QSPI writes with the 466x466 window and 6-pixel
   column offset. Presentation compensates for Bicino's mounted orientation;
   native GRAM remains available. No screenshot is fabricated or replaced.
-- CST9217 accepts one scripted contact, with its real packet format and GPIO21
+- CST9217 accepts one scripted contact, with its real packet format and GPIO11
   interrupt. TCA9554 reset wiring, analog touch behavior and multi-touch are not
   modeled.
 - AXP2101, RTC and codec are initialization stubs. The AXP2101 PWR status
