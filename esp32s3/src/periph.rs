@@ -4,6 +4,8 @@
 use emu_core::{ClockDomain, ClockTree};
 use esp_periph::{GpSpi, Ledc, LedcLayout, Mcpwm};
 use esp_periph::{device_set, mmio, Device, DeviceSet, Dispatch, Misc, WriteEffect};
+use esp_periph::sdmmc::{SdDevice, Sdmmc, SdmmcLayout, SLOTS};
+use esp_soc::board::SdSocket;
 pub use esp_periph::rmt::RmtDma as Rmt;
 pub use esp_periph::{read_desc, reset_cause_name, Aes, DirtyMem, DmaDesc, Efuse, Gdma, GdmaInCh, GdmaOutCh, Gpio, I2s, RegRam, RmtTxCh, Rsa, RtcCntl, Sha, SpiMem, SystemRegs, Systimer, Timer, TimerGroup, Uart, UartLayout, UsbSerialJtag,
                     APB_HZ, DMA_ADDR_BASE, GDMA_CHANNELS, GDMA_CH_STRIDE, RMT_MEM_WORDS, RST_POWERON, RST_RTCWDT_CPU, RST_RTCWDT_RTC, RST_RTCWDT_SYS, RST_SW_CPU, RST_SW_SYS, RTC_SLOW_HZ, SYSTIMER_HZ, XTAL_HZ};
@@ -17,6 +19,9 @@ pub const SRC_GPIO: usize = 16;
 pub const SRC_UART0: usize = 27;
 pub const SRC_UART1: usize = 28;
 pub const SRC_UART2: usize = 29;
+/// ETS_SDIO_HOST_INTR_SOURCE, the SD/MMC host (IDF v5.5.1 components/soc/esp32s3/include/soc/interrupts.h:48;
+/// v4.4.8 periph_defs.h:88).
+pub const SRC_SDIO_HOST: usize = 30;
 pub const SRC_SPI2: usize = 21;
 /// ETS_SPI3_INTR_SOURCE (IDF v5.5.5 components/soc/esp32s3/include/soc/interrupts.h:41; v4.4.8
 /// components/soc/esp32s3/include/soc/periph_defs.h:81).
@@ -454,7 +459,20 @@ pub struct Peripherals {
     pub intmatrix_dirty: bool,
     pub ledc: Ledc,
     pub mcpwm: [Mcpwm; 2],
+    /// the SD/MMC host at DR_REG_SDMMC_BASE 0x60028000 (IDF v5.5.1 register/soc/reg_base.h:43; v4.4.8
+    /// soc.h:78), the socket of each card on its bus, and the bus time carried over guest reboots
+    pub sdmmc: Sdmmc,
+    pub sd_sockets: Vec<SdSocket>,
+    sd_ns_base: u64,
 }
+
+/// GPIO matrix signals of the SD/MMC host, slot 0 and slot 1 (IDF v5.5.1
+/// components/soc/esp32s3/include/soc/gpio_sig_map.h:312-361; v4.4.8 gpio_sig_map.h:320-369):
+/// SDHOST_CCLK_OUT_n, SDHOST_CARD_DETECT_N_n and SDHOST_CARD_WRITE_PRT_n. The S3 has no IO MUX
+/// function for them (SOC_SDMMC_USE_GPIO_MATRIX, soc_caps.h:576).
+pub const SIG_SDHOST_CCLK_OUT: [u32; SLOTS] = [172, 173];
+pub const SIG_SDHOST_CARD_DETECT_N: [usize; SLOTS] = [194, 195];
+pub const SIG_SDHOST_CARD_WRITE_PRT: [usize; SLOTS] = [196, 197];
 
 // Every peripheral, where it sits, and its interrupt source numbers. Entries for one block are
 // tried in order: a range-limited entry goes before the full-block one behind it.
@@ -490,6 +508,7 @@ device_set! { Peripherals; clock: (clock) CPU_HZ, [(ClockDomain::Systimer, 15), 
     0x41 "LCD_CAM" (lcd_cam) => [SRC_LCD_CAM];
     0x24 "SPI2" (spi2) => [SRC_SPI2];
     0x25 "SPI3" (spi3) => [SRC_SPI3];
+    0x28 "SDMMC" optional (sdmmc) => [SRC_SDIO_HOST];
     0x17 "PCNT" (pcnt) => [SRC_PCNT];
     0x33 "WIFI_MAC" (wifi) => [SRC_WIFI_MAC];
     0x34 "WIFI_MAC" alias (wifi) delta 0x1000 => [];
@@ -514,6 +533,7 @@ impl DeviceSet for Peripherals {
             0xc2 if !write => self.intmatrix.status = self.source_status(),   // INTERRUPT_*_STATUS reads the live sources
             0x35 => self.wifi.now_cycles = self.clock.cycles(),               // TSF timestamps
             0x08 => self.rtc.now_cycles = self.clock.cycles(),                // SENS ADC samples analog sources at this time
+            0x28 => self.sd_inputs(),                                         // card time, CDETECT and WRTPRT
             _ => {}
         }
     }
@@ -532,6 +552,7 @@ impl Peripherals {
             io_mux: RegRam::new(), misc: Misc::new(), fake_reads: std::env::var("ESP_EMU_FAKE_READ").ok().map(|v| v.split(',').filter_map(|e| { let mut p = e.split(':'); let a = u32::from_str_radix(p.next()?.trim_start_matches("0x"), 16).ok()?; let o = u32::from_str_radix(p.next().unwrap_or("0").trim_start_matches("0x"), 16).ok()?; let m = u32::from_str_radix(p.next().unwrap_or("ffffffff").trim_start_matches("0x"), 16).ok()?; Some((a, (o, m))) }).collect()).unwrap_or_default(),
             clock: Self::new_clock(),
             spi_exec: false, last_status: [0; 4], intmatrix_dirty: false,
+            sdmmc: Sdmmc::new(SdmmcLayout::Esp32), sd_sockets: Vec::new(), sd_ns_base: 0,
         }
     }
 
@@ -592,6 +613,9 @@ impl Peripherals {
         if addr == PERIPH_BASE + 0xc001c || addr == PERIPH_BASE + 0xc0024 {
             self.lcd_cam.set_clock_enabled(self.system.read(0x1c) & (1 << 8) != 0 && self.system.read(0x24) & (1 << 8) == 0);
         }
+        // SYSTEM_PERIP_RST_EN1.SDIO_HOST_RST, bit 7 (IDF v5.5.1 soc/system_reg.h:580-585; v4.4.8
+        // system_reg.h:590): sdmmc_ll_reset_register pulses it. The card stays in its socket.
+        if addr == PERIPH_BASE + 0xc0024 && v & (1 << 7) != 0 { self.sdmmc.reset_registers(); self.refresh_optional(0x28); }
         if addr == PERIPH_BASE + 0xc0018 || addr == PERIPH_BASE + 0xc0020 {
             for (group, bit) in [17, 20].iter().enumerate() { self.mcpwm[group].clock_enabled = self.system.read(0x18) & (1 << bit) != 0 && self.system.read(0x20) & (1 << bit) == 0; }
             self.ledc.clock_enabled = self.system.read(0x18) & (1 << 11) != 0 && self.system.read(0x20) & (1 << 11) == 0;
@@ -672,6 +696,52 @@ impl Peripherals {
             if st[src / 32] & (1 << (src % 32)) != 0 { let n = self.intmatrix.map[core][src]; if n < 32 { lines |= 1 << n; } }
         }
         lines
+    }
+    /// Emulated time on the SD bus, in nanoseconds since power-on; a guest reboot keeps it running.
+    pub(crate) fn sd_now_ns(&self) -> u64 { self.sd_ns_base + (self.clock.cycles() as u128 * 1_000_000_000 / CPU_HZ as u128) as u64 }
+    pub(crate) fn keep_sd_bus(&mut self, old: &mut Peripherals) {
+        self.sdmmc.devices = std::mem::take(&mut old.sdmmc.devices);
+        self.sdmmc.stats = old.sdmmc.stats;
+        self.sd_sockets = std::mem::take(&mut old.sd_sockets);
+        self.sd_ns_base = old.sd_now_ns();
+    }
+    /// The level an input signal reaches the SD/MMC host with: FUNCn_IN_SEL bits 5:0 pick a pad or
+    /// a constant, GPIO_MATRIX_CONST_ONE_INPUT 0x38 or GPIO_MATRIX_CONST_ZERO_INPUT 0x3C (IDF v5.5.1
+    /// components/soc/esp32s3/include/soc/gpio_pins.h:13-14; v4.4.8 gpio_pins.h:22-23); bit 6 inverts.
+    fn sd_signal(&self, sig: usize) -> bool {
+        let v = self.gpio.func_in_sel[sig];
+        let level = match v & 0x3f { 0x38 => true, 0x3c => false, pin => self.gpio.input >> pin & 1 != 0 };
+        level ^ (v & 0x40 != 0)
+    }
+    /// Before an SDMMC register access: the time the cards see, and CDETECT and WRTPRT from the
+    /// matrix. sdmmc_host_init_slot ties a missing card detect to constant 0 (present) and a
+    /// missing write protect to constant 1 inverted (not protected).
+    fn sd_inputs(&mut self) {
+        self.sdmmc.now_ns = self.sd_now_ns();
+        let (mut cd, mut wp) = (0, 0);
+        for s in 0..SLOTS {
+            cd |= (self.sd_signal(SIG_SDHOST_CARD_DETECT_N[s]) as u32) << s;
+            wp |= (self.sd_signal(SIG_SDHOST_CARD_WRITE_PRT[s]) as u32) << s;
+        }
+        (self.sdmmc.card_detect_n, self.sdmmc.write_protect) = (cd, wp);
+    }
+    /// Which card each SDMMC slot reaches. Both slots go through the GPIO matrix: a card is on
+    /// slot n while its socket's CLK pad is a GPIO (IO_MUX function 1) driving SDHOST_CCLK_OUT_n.
+    pub fn sd_routes(&self) -> [Option<usize>; SLOTS] {
+        let routes = esp_soc::pins::ChipPins::S3.routes(&self.gpio, &self.io_mux);
+        let mut r = [None; SLOTS];
+        for (i, socket) in self.sd_sockets.iter().enumerate() {
+            for (slot, &sig) in SIG_SDHOST_CCLK_OUT.iter().enumerate() { if routes.matrix_output(socket.clk as usize, sig) { r[slot] = Some(i); } }
+        }
+        r
+    }
+    /// Put a card in `socket`, in place of one already there.
+    pub fn attach_sd(&mut self, socket: SdSocket, mut dev: Box<dyn SdDevice>) {
+        dev.set_log(self.sdmmc.logging());
+        match self.sd_sockets.iter().position(|&s| s == socket) {
+            Some(i) => self.sdmmc.devices[i] = dev,
+            None => { self.sdmmc.attach(dev); self.sd_sockets.push(socket); }
+        }
     }
     /// SYSTEM_CORE_1_CONTROL_0: (clkgate_en, reseting, runstall)
     pub fn core1_control(&self) -> (bool, bool, bool) { let v = self.system.ram.read(0); (v & 2 != 0, v & 4 != 0, v & 1 != 0) }

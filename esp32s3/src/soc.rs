@@ -153,6 +153,7 @@ impl esp_soc::SocBus for SocBus {
         let cause = self.periph.rtc.reset_cause;
         let mut old = std::mem::replace(&mut self.periph, periph::Peripherals::new(mac));
         let p = &mut self.periph;
+        p.keep_sd_bus(&mut old);                          // the card stays in its socket, its time runs on
         // The host AP and network survive a guest reboot; only the MAC and relay queues reset.
         p.wifi.link = old.wifi.link.surviving_reboot();
         // Host camera cadence and logging survive; guest capture state resets.
@@ -246,7 +247,21 @@ impl esp_soc::SocBus for SocBus {
         if p.lcd_cam.lcd_frames > 0 { s += &format!("[emu] lcd: {} RGB frames\n", p.lcd_cam.lcd_frames); }
         if p.lcd_cam.frames + p.lcd_cam.dropped > 0 { s += &format!("[emu] camera: {} VSYNCs, {} frames with dropped data\n", p.lcd_cam.frames, p.lcd_cam.dropped); }
         if p.rmt.tx_count > 0 { s += &format!("[emu] rmt tx {}\n", p.rmt.tx_count); }
+        { let d = &p.sdmmc.stats;
+          if !p.sdmmc.devices.is_empty() || d.commands > 0 { s += &format!("[sdmmc] {} commands ({} unanswered), {} bytes read, {} written\n", d.commands, d.timeouts, d.bytes_read, d.bytes_written); } }
         s.trim_end().to_string()
+    }
+    /// The card goes in the board's socket; firmware reaches it on whichever slot drives the
+    /// socket's CLK pad. The S3's SD bus is untimed: `--sd-timing` is the ESP32-P4's.
+    fn attach_sd_card(&mut self, image: Box<dyn esp_periph::sdmmc::SdStore>, config: esp_periph::sdmmc::SdCardConfig) -> Result<String, String> {
+        let Some(socket) = self.board.sd_socket() else { return Err(format!("board {} has no SD card socket", self.board.name())) };
+        if config.timed_bus { return Err("the ESP32-S3's SD bus is untimed; --sd-timing is modelled on the ESP32-P4 only".into()); }
+        let card = esp_periph::sdmmc::SdCard::with_config(image, config)?;
+        let data: Vec<String> = socket.data.iter().map(|d| d.map_or("-".into(), |p| p.to_string())).collect();
+        let what = format!("{}, {} blocks ({}), serial {:08x}, programming {} us, at CLK {} CMD {} D0-D3 {}", card.describe(), card.blocks(), if card.sdxc() { "SDXC" } else { "SDHC" },
+                           card.serial(), card.config.prg_ns / 1000, socket.clk, socket.cmd, data.join(","));
+        self.periph.attach_sd(socket, Box::new(card));
+        Ok(what)
     }
     fn set_debug(&mut self, f: &esp_soc::DebugFlags) {
         self.debug = f.clone();
