@@ -234,11 +234,12 @@ and firmware logs can include synthetic or real session data; keep them local.
 Do not run the bridge while another task owns the iPhone. An actual iPhone run
 passed discovery, matching-code registration, protected settings/GPS/navigation,
 bridge and app restart recovery, and deregistration. Full map transfers remain
-unproven, and that iPhone run had no card in the simulator. The firmware has a
-separate pairing deadline bug, still present at `f37a084f`: confirmation after
-13 modeled seconds registers ownership then disconnects before authentication.
-Prompt confirmation passes; this is recorded as a firmware failure, not hidden
-by the proxy. See [`verification.md`](verification.md) for the exact scope.
+unproven, and that iPhone run had no card in the simulator. Firmware up to
+`f37a084f` has a separate pairing deadline bug: confirmation after 13 modeled
+seconds registers ownership then disconnects before authentication.
+[open-bike-computer #667](https://github.com/seichris/open-bike-computer/pull/667)
+fixes it; it is recorded as a firmware failure, not hidden by the proxy. See
+[`verification.md`](verification.md) for the exact scope.
 
 For a reproducible synthetic ownership/navigation scenario, install the optional
 Python `cryptography` package in your own environment, restart to a fresh guest,
@@ -249,8 +250,9 @@ and run:
 python3 tools/bicino_scenario.py
 ```
 
-To reproduce the supplied firmware's longer-confirmation failure, restart to a
-fresh guest and run `python3 tools/bicino_scenario.py --confirmation-delay 13`.
+To reproduce the longer-confirmation failure of firmware before
+open-bike-computer #667, restart to a fresh guest and run
+`python3 tools/bicino_scenario.py --confirmation-delay 13`.
 The flag uses modeled seconds; it does not bypass the physical-confirmation gate.
 
 Two negative controls check the unauthenticated-link deadline. With

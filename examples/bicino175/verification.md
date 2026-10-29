@@ -62,13 +62,28 @@ Retained failures:
    contact reads. open-bike-computer `73d2f9ad` moved the CST9217 TP_INT to
    GPIO11, its vendor-schematic net, and the firmware now reads only after
    that edge; the board still raised GPIO21. `7ce4819f` raises GPIO11.
-2. **Delayed confirmation, a firmware failure, open.** Confirming 13 modeled
-   seconds after connecting still logs `Ownership pairing confirmed`,
-   `Device ownership registered` and then `Disconnecting unauthenticated client
-   after timeout`, before the claim and authentication. In
-   `esp32/lib/ble_navigation/ble_navigation.cpp:7535-7547` (and the
-   maintenance copy at 7433-7434) the allowance is 120 s only while a pairing
-   code is pending, then 12 s from the original `lastConnectMs`. Not fixed here.
+2. **Delayed confirmation, a firmware failure, fixed in
+   [open-bike-computer #667](https://github.com/seichris/open-bike-computer/pull/667).**
+   Confirming 13 modeled seconds after connecting logged `Ownership pairing
+   confirmed`, `Device ownership registered` and then `Disconnecting
+   unauthenticated client after timeout`, before the claim and authentication:
+   the allowance was 120 s only while a pairing code was open, then 12 s from
+   the original connection. #667 (`a8a0297e`) restarts the window when CONFIRM
+   registers ownership. On the same replay revision (`cae769c2`, clean), with
+   the new `--abandon` controls:
+
+   | Replay | `f37a084f` | `a8a0297e` |
+   | --- | --- | --- |
+   | confirmation after 13 s | fails, dropped after registration | pass, 22/22 |
+   | confirmation after 100 s | fails, dropped after registration | pass, 22/22 |
+   | silent after `PAIRED` | dropped 9.28 s later: fails | dropped 12.02 s later: pass |
+   | silent after `PAIRED`, 13 s confirmation | — | dropped 12.02 s later: pass |
+   | silent after connecting | dropped 12.12 s later: pass | dropped 12.18 s later: pass |
+
+   Two replay timing bugs surfaced on the way and are fixed: a 90-second wall
+   limit on advancing modeled time, and a main-screen check that read the last
+   5-second status line instead of waiting for one. Receipt:
+   [deadline-fix-2026-10-29.json](../../docs/evidence/bicino-development/deadline-fix-2026-10-29.json).
 3. The 0.1-second capture and the blank card fail by design.
 
 The S3 bus is untimed and the card ideal; the selection is hand-written, not an
