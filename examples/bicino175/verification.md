@@ -1,9 +1,81 @@
-# Bicino workflow verification — 2026-10-24, updated 2026-10-27
+# Bicino workflow verification — 2026-10-24, updated 2026-10-29
 
 The initial October 24 checks below use the native emulator and a synthetic
 client. The October 26–27 follow-up also uses a real USB-connected iPhone and
-the Mac's CoreBluetooth radio. No board was flashed. A separate existing-image
-physical-board check is scoped explicitly below.
+the Mac's CoreBluetooth radio. The October 29 update syncs upstream, adds a
+microSD card behind the ESP32-S3 SD/MMC host and requalifies current firmware;
+it uses only the emulator and the synthetic client. No board was flashed. A
+separate existing-image physical-board check is scoped explicitly below.
+
+## October 29: upstream sync, microSD maps and firmware `f37a084f`
+
+Upstream `mikroverk/esp32sim` `main` is `2e36224d34decc2fc9d2bba5fa4c5fdf2171b0a6`
+(through #293, including the shared SD/MMC host of #274). The fork's `main`
+fast-forwarded from `20117b08` to it; the fork had no commits of its own there.
+This branch merged it in `8f680ef9` (four additive conflicts: CLI help, board
+docs, the BLE peer's state and the live page). The S3 host is the stacked
+`claude/s3-sdmmc` branch (`b64b009b`, `a19a9366`), merged here. All runs below
+use emulator `7ce4819f0836b4093edad46f698fae7e91227a80`, clean, Rust 1.99.1.
+
+Firmware is `seichris/open-bike-computer` `main` at
+`f37a084facc8a286ad506bd51bfc2e6adbd19957`, built from a clean checkout by its
+locked builder (`python3 tools/build_firmware.py WAVESHARE_AMOLED_175`, ordinary
+profile, upload-eligible, core cache miss, ESP-IDF 5.5.1). The running
+`BOOT_META` reports target and profile `WAVESHARE_AMOLED_175`, version 0.3.4,
+build 105, that Git SHA, `built=2026-10-29T10:30:05Z` and fingerprint `289B86E9`.
+Firmware SHA-256 `ada0975cb17d1378b33861d67ddc1fef3abfca473668b49fe4463dfe53150787`,
+ELF `352c456292fc1aff80d409b8b363363bde3736180f5deb25fecdbfb551f8fed2`,
+bootloader `83a06f27…`, partition table `7dd5955a…` and `boot_app0.bin`
+`f94c5d78…` all equal the builder's `FIRMWARE_BUILD_PROVENANCE`. Setup now
+takes `boot_app0.bin` from the build's flash plan and writes it at `0xe000`, as
+the locked uploader does; earlier runs left that OTA data erased. Not flashed;
+cached `50aaf9b1` was not reused.
+
+| Run | Storage | Result | Firmware-side evidence |
+| --- | --- | --- | --- |
+| 5 s boot | substitution | pass, 7/7 | ready at 1.73 s |
+| 0.1 s capture | substitution | fails as intended, exit 1 | no `BOOT_META`, ready, advertising or screen |
+| 8 s, `touch.txt` | substitution | pass, 8/8 | the guest read 9 contact packets |
+| 10 s, empty socket | empty socket | pass, 7/7 | 30 SD commands, 27 unanswered; SPI fallback, FFat; ready at 4.00 s |
+| 10 s, blank card | card | fails as intended, exit 1 | `sd_mounted` false: 72 commands, FatFs finds no file system |
+| 8 s, Golden Gate card | card | pass, 10/10 | native mount on attempt 1; `activeMapId=golden-gate-labels-t3`; block and font sectors read; ready at 1.56 s |
+| ATT probe | substitution | pass | MTU 512, three services, INFO on two links |
+| replay | substitution | pass, 22/22 | `authOK=2 nav=1 route=1 gps=2 settings=1 rejectAuth=2`; `mapFound=0` |
+| replay, confirmation after 13 s | substitution | fails, 6 checks then disconnect | retained firmware failure, below |
+| replay with card at 37.8199, −122.4783 | card | pass, 26/26 | blocks `15_7` and `15_8` read after the GPS write; `mapFound=1 mapBlocks=2` |
+
+The card image comes from `tools/bicino_sdcard.py` (two builds, identical
+SHA-256 `c5c9fef2934599147630f96b237d3b218c1efe009eba0f5d2e226a830ac3b52d`;
+macOS `fsck_msdos -n` on its partition reports no errors). It holds the frozen
+`golden-gate-labels-t3` extraction fixture from open-bike-computer `f37a084f`
+under `VECTMAP/.maps/` and a session-less `active-map.json`. No-card and
+populated-SD results are kept apart by `storage.mode` in every result; the
+scenario's `sd_maps` is true only for the card run. Screenshots, logs, firmware
+and images stay in ignored `.local/`; the
+[receipt](../../docs/evidence/bicino-development/sd-sync-2026-10-29.json) holds
+commands, inputs, hashes, checks and outcomes.
+
+Retained failures:
+
+1. **Touch, an emulator regression, fixed.** The new `touch_contact_read` check
+   failed for `touch.txt` and for a tap at 7.3 s on clean `3928b387`: zero
+   contact reads. open-bike-computer `73d2f9ad` moved the CST9217 TP_INT to
+   GPIO11, its vendor-schematic net, and the firmware now reads only after
+   that edge; the board still raised GPIO21. `7ce4819f` raises GPIO11.
+2. **Delayed confirmation, a firmware failure, open.** Confirming 13 modeled
+   seconds after connecting still logs `Ownership pairing confirmed`,
+   `Device ownership registered` and then `Disconnecting unauthenticated client
+   after timeout`, before the claim and authentication. In
+   `esp32/lib/ble_navigation/ble_navigation.cpp:7535-7547` (and the
+   maintenance copy at 7433-7434) the allowance is 120 s only while a pairing
+   code is pending, then 12 s from the original `lastConnectMs`. Not fixed here.
+3. The 0.1-second capture and the blank card fail by design.
+
+The S3 bus is untimed and the card ideal; the selection is hand-written, not an
+app-installed durable map, so no transfer, manifest receipt or signature path
+runs. Wall times ran on a shared host under other sessions' load and are not
+performance results. The CPU controls for the S3 change are in
+[EX248](../../docs/experiments.md#ex248).
 
 ## iPhone and physical-board follow-up
 

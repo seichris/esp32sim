@@ -19,7 +19,8 @@ five emulated seconds, and returns success only after the firmware reports the
 correct target, boot readiness, BLE advertising, and a nonblank 466x466 screen.
 An emulator fault, guest panic, or wall timeout fails the run. The `f37a084f`
 image reached ready at 1.73 emulated seconds without a card; a five-second capture
-took 6.39 seconds wall time in one local run, excluding the cached build check.
+took 6.2 to 11.2 seconds of wall time in local runs on a shared, loaded host,
+excluding the cached build check.
 This is a workflow observation, not an ESP32 performance benchmark.
 
 Read `.local/bicino/latest/result.json` first. Other files in that same directory:

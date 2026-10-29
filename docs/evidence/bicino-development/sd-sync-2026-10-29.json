@@ -1,0 +1,1037 @@
+{
+ "schema": 1,
+ "date": "2026-10-29",
+ "emulator": {
+  "repository": "seichris/esp32sim",
+  "revision": "7ce4819f0836b4093edad46f698fae7e91227a80",
+  "dirty": false,
+  "upstream": "mikroverk/esp32sim main 2e36224d34decc2fc9d2bba5fa4c5fdf2171b0a6",
+  "rust": "1.99.1 (58cf8f9c3 2026-10-13)"
+ },
+ "firmware": {
+  "repository": "seichris/open-bike-computer",
+  "revision": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+  "environment": "WAVESHARE_AMOLED_175",
+  "builder": "esp32/tools/build_firmware.py (locked runtime firmware-runtime-2026-08-10-1, upload-eligible clean build, coreCache=miss)",
+  "esp_idf": "5.5.1 (framework-arduinoespressif32-libs 5.5.0+sha.8410210c9a)",
+  "sha256": {
+   "bootloader.bin": "83a06f27135bc674db41f21b5bed122bf659bbf0a2e3ee7e45654245741cafe9",
+   "partitions.bin": "7dd5955a3be2f162301cd46e83ba8d6ce83a106e47f49308937b71e3fb9fc7ce",
+   "firmware.bin": "ada0975cb17d1378b33861d67ddc1fef3abfca473668b49fe4463dfe53150787",
+   "firmware.elf": "352c456292fc1aff80d409b8b363363bde3736180f5deb25fecdbfb551f8fed2",
+   "boot_app0.bin": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+  },
+  "flash_at": {
+   "boot_app0.bin": "0xe000"
+  },
+  "flash_plan_file_sha256": "b2eff25f83a80793d84a34f92caed78e27ea337d73c2f0daa76fbba143788027",
+  "provenance": {
+   "firmwareBinSha256": "ada0975cb17d1378b33861d67ddc1fef3abfca473668b49fe4463dfe53150787",
+   "firmwareElfSha256": "352c456292fc1aff80d409b8b363363bde3736180f5deb25fecdbfb551f8fed2",
+   "bootApp0Sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
+   "flashPlanSha256": "1c77ab84acb4a0842178701265586bc61f2c8531faaa575e9e6906aff0425073",
+   "sourceDateEpoch": 1793269805,
+   "coreInputKey": "bd9989f34d81705291b0d2b62dd5ec39a16c47bc426b945745f6e2a178165dd4"
+  },
+  "boot_meta": {
+   "schema": "1",
+   "sequence": "1",
+   "target": "WAVESHARE_AMOLED_175",
+   "profile": "WAVESHARE_AMOLED_175",
+   "version": "0.3.4",
+   "build": "105",
+   "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+   "built": "2026-10-29T10:30:05Z",
+   "fingerprint": "289B86E9",
+   "reset": "power_on",
+   "resetCode": "1"
+  }
+ },
+ "sd_image": {
+  "command": "python3 tools/bicino_sdcard.py build --out .local/bicino/sd/golden-gate-t3.img --map $FIXTURES/golden-gate-labels-t3 --map-id golden-gate-labels-t3",
+  "fixture": "seichris/open-bike-computer f37a084f map-platform/backend/tests/fixtures/map-compatibility-extraction-v1/golden-gate-labels-t3 (frozen worker output; OpenStreetMap data, ODbL 1.0)",
+  "fixture_files": {
+   "-209+069/15_7.fmb": "ec0496e749d225e684cc1cc05c18b1c2877565ef0b7fa8ab03fc6d4a426ac573",
+   "-209+069/15_8.fmb": "694c25547d5f778b27e807988065f0ec75fc89eff753ca0dff345867923f9826",
+   "assets/street-labels.fma": "6bf70b96a286e0c54a48b40ad37cbb11cd4f70bb1854093e0f3e5d4d32317e75"
+  },
+  "sha256": "c5c9fef2934599147630f96b237d3b218c1efe009eba0f5d2e226a830ac3b52d",
+  "bytes": 67108864,
+  "rebuilt_identical": true,
+  "fsck_msdos": "macOS fsck_msdos -n on the partition (LBA 2048 on): no errors, 9 entries",
+  "active_map": {
+   "mapId": "golden-gate-labels-t3",
+   "root": "/VECTMAP/.maps/golden-gate-labels-t3"
+  },
+  "files": [
+   {
+    "path": "/VECTMAP/.maps/golden-gate-labels-t3/-209+069/15_7.fmb",
+    "bytes": 768,
+    "sha256": "ec0496e749d225e684cc1cc05c18b1c2877565ef0b7fa8ab03fc6d4a426ac573",
+    "lba_runs": [
+     [
+      4085,
+      2
+     ]
+    ]
+   },
+   {
+    "path": "/VECTMAP/.maps/golden-gate-labels-t3/-209+069/15_8.fmb",
+    "bytes": 121,
+    "sha256": "694c25547d5f778b27e807988065f0ec75fc89eff753ca0dff345867923f9826",
+    "lba_runs": [
+     [
+      4087,
+      1
+     ]
+    ]
+   },
+   {
+    "path": "/VECTMAP/.maps/golden-gate-labels-t3/assets/street-labels.fma",
+    "bytes": 14566,
+    "sha256": "6bf70b96a286e0c54a48b40ad37cbb11cd4f70bb1854093e0f3e5d4d32317e75",
+    "lba_runs": [
+     [
+      4089,
+      29
+     ]
+    ]
+   },
+   {
+    "path": "/VECTMAP/active-map.json",
+    "bytes": 80,
+    "sha256": "3e7d562770f6f20c2ced7d65645f665d5fa7d347f3e327850f64c886cdfd842d",
+    "lba_runs": [
+     [
+      4118,
+      1
+     ]
+    ]
+   }
+  ],
+  "blank_card": "64 MiB of zeros, no partition table (.local/bicino/sd/blank-64m.img)"
+ },
+ "runs": {
+  "run-default": {
+   "command": "tools/bicino.py run",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true
+   },
+   "wall_seconds": 11.168,
+   "emulated_seconds": 5,
+   "storage": {
+    "mode": "no-card-substitution"
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": {
+    "schema": "1",
+    "sequence": "1",
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "105",
+    "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+    "built": "2026-10-29T10:30:05Z",
+    "fingerprint": "289B86E9",
+    "reset": "power_on",
+    "resetCode": "1"
+   },
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "5",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114418.197805Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114418.197805Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--stub",
+    "_ZN7Storage6initSDEv=0xffffffff"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "f764864bc2d4bd4116d61b93235689b0771b816362a4a24a18e8580a278064ea",
+     "bytes": 7149
+    },
+    "emulator.log": {
+     "sha256": "0a63987c05cdb192672128abcdbc513442e1064377015534d9619574546744b7",
+     "bytes": 1699
+    },
+    "screen.png": {
+     "sha256": "38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "827c12a979cb3fcc6a1c660caa1f9232d96ca6d9abaefde1b177064db0209067",
+     "bytes": 2607067
+    }
+   },
+   "board_report": "AMOLED175: frames=131 pixels=439048 size=466x466 power=stub touch_contact_reads=0"
+  },
+  "run-negative-0.1s": {
+   "command": "tools/bicino.py run --no-build --seconds 0.1",
+   "returncode": 1,
+   "passed": false,
+   "checks": {
+    "process_exited": true,
+    "correct_target": false,
+    "boot_ready": false,
+    "ble_advertising": false,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": false
+   },
+   "wall_seconds": 0.655,
+   "emulated_seconds": 0.1,
+   "storage": {
+    "mode": "no-card-substitution"
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": null,
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "0.1",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114429.713082Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114429.713082Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--stub",
+    "_ZN7Storage6initSDEv=0xffffffff"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "b0381214c8bf847978a155d98a32e0b2e14abb421ecca927b53c9ea52b974e02",
+     "bytes": 253
+    },
+    "emulator.log": {
+     "sha256": "2afb38b193aae7bedc2967be4990cf0c58aaa7e89a77ce52a3befe00ece38c99",
+     "bytes": 1358
+    },
+    "screen.png": {
+     "sha256": "10177e231c677950400654c9b834edf6168bf08507e9aa8ce23e623ffedb81dd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "a654ff9f496825dd7d8d26e6be18528219735be6e04f19b7153eead96c4290de",
+     "bytes": 2607067
+    }
+   },
+   "board_report": "AMOLED175: frames=0 pixels=0 size=466x466 power=stub touch_contact_reads=0"
+  },
+  "run-touch-script": {
+   "command": "tools/bicino.py run --no-build --seconds 8 --script examples/bicino175/touch.txt",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true,
+    "touch_contact_read": true
+   },
+   "wall_seconds": 22.008,
+   "emulated_seconds": 8.0,
+   "storage": {
+    "mode": "no-card-substitution"
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": {
+    "schema": "1",
+    "sequence": "1",
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "105",
+    "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+    "built": "2026-10-29T10:30:05Z",
+    "fingerprint": "289B86E9",
+    "reset": "power_on",
+    "resetCode": "1"
+   },
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "8.0",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114430.626540Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114430.626540Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--stub",
+    "_ZN7Storage6initSDEv=0xffffffff",
+    "--script",
+    ".local/bicino/runs/20261029T114430.626540Z/actions.txt"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "08791808c3470d36ea990a67e6247960194de005bca34e4abf8fa3c9eb0f8449",
+     "bytes": 10254
+    },
+    "emulator.log": {
+     "sha256": "f00aff6aad572919e83fdb5c90ac4fbe165470df884065477613ab40caff5f31",
+     "bytes": 1820
+    },
+    "screen.png": {
+     "sha256": "38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "827c12a979cb3fcc6a1c660caa1f9232d96ca6d9abaefde1b177064db0209067",
+     "bytes": 2607067
+    }
+   },
+   "board_report": "AMOLED175: frames=131 pixels=439048 size=466x466 power=stub touch_contact_reads=9"
+  },
+  "run-empty-socket": {
+   "command": "tools/bicino.py run --no-build --seconds 10 --timeout 120 --full-storage-probe",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true
+   },
+   "wall_seconds": 16.818,
+   "emulated_seconds": 10.0,
+   "storage": {
+    "mode": "empty-socket"
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": {
+    "schema": "1",
+    "sequence": "1",
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "105",
+    "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+    "built": "2026-10-29T10:30:05Z",
+    "fingerprint": "289B86E9",
+    "reset": "power_on",
+    "resetCode": "1"
+   },
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "10.0",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114452.874830Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114452.874830Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "1c25006ce7141382afc4e9c4e9945a7cbda858888e58f1958fc746e7c9ab735d",
+     "bytes": 14210
+    },
+    "emulator.log": {
+     "sha256": "cfaf91d861c5d1a89170f8cc241c0dda55de1eb0ad495af34557920778b1bf6f",
+     "bytes": 1711
+    },
+    "screen.png": {
+     "sha256": "38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "827c12a979cb3fcc6a1c660caa1f9232d96ca6d9abaefde1b177064db0209067",
+     "bytes": 2607067
+    }
+   },
+   "sdmmc_report": "[sdmmc] 30 commands (27 unanswered), 0 bytes read, 0 written",
+   "board_report": "AMOLED175: frames=131 pixels=439048 size=466x466 power=stub touch_contact_reads=0"
+  },
+  "run-blank-card": {
+   "command": "tools/bicino.py run --no-build --seconds 10 --timeout 120 --sd-image .local/bicino/sd/blank-64m.img",
+   "returncode": 1,
+   "passed": false,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true,
+    "sd_mounted": false
+   },
+   "wall_seconds": 8.058,
+   "emulated_seconds": 10.0,
+   "storage": {
+    "mode": "sd-card",
+    "image": ".local/bicino/sd/blank-64m.img",
+    "sha256": "3b6a07d0d404fab4e23b6d34bc6696a6a312dd92821332385e5af7c01c421351",
+    "bytes": 67108864,
+    "reads": {}
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": {
+    "schema": "1",
+    "sequence": "1",
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "105",
+    "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+    "built": "2026-10-29T10:30:05Z",
+    "fingerprint": "289B86E9",
+    "reset": "power_on",
+    "resetCode": "1"
+   },
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "10.0",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114509.981099Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114509.981099Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--sd",
+    ".local/bicino/sd/blank-64m.img",
+    "--debug",
+    "sdmmc"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "f66a91b56dd1b61a6bdd677a9688d80e08a5732b14263c947b18c2b26c90985c",
+     "bytes": 14015
+    },
+    "emulator.log": {
+     "sha256": "bd22fcfa8a408088d658dfa571f4d02ed68cf60e99eb860c140675bef9eedd08",
+     "bytes": 10975
+    },
+    "screen.png": {
+     "sha256": "38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "827c12a979cb3fcc6a1c660caa1f9232d96ca6d9abaefde1b177064db0209067",
+     "bytes": 2607067
+    }
+   },
+   "sdmmc_report": "[sdmmc] 72 commands (6 unanswered), 1776 bytes read, 0 written",
+   "board_report": "AMOLED175: frames=131 pixels=439048 size=466x466 power=stub touch_contact_reads=0"
+  },
+  "run-sd-map": {
+   "command": "tools/bicino.py run --no-build --seconds 8 --timeout 120 --sd-image .local/bicino/sd/golden-gate-t3.img",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "process_exited": true,
+    "correct_target": true,
+    "boot_ready": true,
+    "ble_advertising": true,
+    "no_guest_panic": true,
+    "bounded_stop": true,
+    "nonblank_screen": true,
+    "sd_mounted": true,
+    "map_selected": true,
+    "map_block_read": true
+   },
+   "wall_seconds": 4.903,
+   "emulated_seconds": 8.0,
+   "storage": {
+    "mode": "sd-card",
+    "image": ".local/bicino/sd/golden-gate-t3.img",
+    "sha256": "c5c9fef2934599147630f96b237d3b218c1efe009eba0f5d2e226a830ac3b52d",
+    "bytes": 67108864,
+    "active_map": {
+     "mapId": "golden-gate-labels-t3",
+     "root": "/VECTMAP/.maps/golden-gate-labels-t3"
+    },
+    "reads": {
+     "/VECTMAP/active-map.json": 6,
+     "/VECTMAP/.maps/golden-gate-labels-t3/-209+069/15_7.fmb": 2,
+     "/VECTMAP/.maps/golden-gate-labels-t3/assets/street-labels.fma": 64
+    }
+   },
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "boot_meta": {
+    "schema": "1",
+    "sequence": "1",
+    "target": "WAVESHARE_AMOLED_175",
+    "profile": "WAVESHARE_AMOLED_175",
+    "version": "0.3.4",
+    "build": "105",
+    "git": "f37a084facc8a286ad506bd51bfc2e6adbd19957",
+    "built": "2026-10-29T10:30:05Z",
+    "fingerprint": "289B86E9",
+    "reset": "power_on",
+    "resetCode": "1"
+   },
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--max-seconds",
+    "8.0",
+    "--no-reboot",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114518.232045Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114518.232045Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--sd",
+    ".local/bicino/sd/golden-gate-t3.img",
+    "--debug",
+    "sdmmc"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "90a1dc7e114dcac4326274b8962ad142044efa5af016c76ac34c4e2ce418e42b",
+     "bytes": 11126
+    },
+    "emulator.log": {
+     "sha256": "ee483d63e2317de2a5370db658318cb68b72dc5a88fcb44cbf2a5b6d5b8408a6",
+     "bytes": 130213
+    },
+    "screen.png": {
+     "sha256": "38ce3ac0f270180313a760c2331dc83e3ab8fe26c6e7af1c85e655c41100e7cd",
+     "bytes": 652047
+    },
+    "native-gram.png": {
+     "sha256": "827c12a979cb3fcc6a1c660caa1f9232d96ca6d9abaefde1b177064db0209067",
+     "bytes": 2607067
+    }
+   },
+   "sdmmc_report": "[sdmmc] 1086 commands (2 unanswered), 241232 bytes read, 31232 written",
+   "board_report": "AMOLED175: frames=131 pixels=439048 size=466x466 power=stub touch_contact_reads=0"
+  },
+  "ble-probe": {
+   "command": "tools/bicino.py start --no-build --port 17510 --timeout 120; python3 tools/bicino_ble.py probe",
+   "returncode": 0,
+   "probe": {
+    "passed": true,
+    "mtu": 512,
+    "services": 3,
+    "info_notification": true,
+    "reconnect_notification": true,
+    "physical_iphone": false,
+    "authenticated": false
+   }
+  },
+  "scenario-default": {
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+   },
+   "storage": {
+    "mode": "no-card-substitution"
+   },
+   "confirmation_delay_seconds": 1,
+   "position_microdegrees": [
+    0,
+    0
+   ],
+   "sd_maps": false,
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114531.973516Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114531.973516Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--stub",
+    "_ZN7Storage6initSDEv=0xffffffff",
+    "--web",
+    "17510",
+    "--web-dir",
+    "web"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "2e6357104c7b2c6091b72d54c681633835c8e697af4391d276abd8e510dbdbfa",
+     "bytes": 22870
+    },
+    "emulator.log": {
+     "sha256": "bb9094e7cd382497bff3bf50f82d67339732108bf5324921f689b7bade6ab619",
+     "bytes": 8358
+    },
+    "scenario-serial.log": {
+     "sha256": "9597a28faf69b19d7e29470f32457a03732ebe39c4ee13ff5e7572a1fd173b8e",
+     "bytes": 513
+    },
+    "pairing-code.png": {
+     "sha256": "1500908a3980e51dea1613c61a7f8e394d8f983adbb80e4d5683bc6cbcf33439",
+     "bytes": 8787
+    },
+    "pairing.png": {
+     "sha256": "1500908a3980e51dea1613c61a7f8e394d8f983adbb80e4d5683bc6cbcf33439",
+     "bytes": 8787
+    },
+    "map-no-data.png": {
+     "sha256": "daf31c87dee1275c86de145445f2770c038f8640a9afb9175049d53f15761c73",
+     "bytes": 8009
+    },
+    "page-after-button.png": {
+     "sha256": "a161fd6fbe543d7e69d6f6cb9d40c9908dfa9ecb179a8e298d487706efe00215",
+     "bytes": 7096
+    },
+    "reconnected.png": {
+     "sha256": "a161fd6fbe543d7e69d6f6cb9d40c9908dfa9ecb179a8e298d487706efe00215",
+     "bytes": 7096
+    }
+   },
+   "last_ble_debug": "BLE Debug: up=20s init=1 conn=1 auth=1 connects=2 disconnects=1 authOK=2 nav=1 route=1 gps=2 settings=1 rejectAuth=2",
+   "map_status_lines": [
+    "mapFound=0 mapBlocks=0"
+   ]
+  },
+  "scenario-delay-13": {
+   "command": "tools/bicino.py restart --no-build --port 17510 --timeout 120; python3 tools/bicino_scenario.py --confirmation-delay 13",
+   "returncode": 1,
+   "passed": false,
+   "checks": {
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true
+   },
+   "storage": {
+    "mode": "no-card-substitution"
+   },
+   "confirmation_delay_seconds": 13.0,
+   "position_microdegrees": [
+    0,
+    0
+   ],
+   "sd_maps": false,
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114601.730992Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114601.730992Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--stub",
+    "_ZN7Storage6initSDEv=0xffffffff",
+    "--web",
+    "17510",
+    "--web-dir",
+    "web"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "6754bc93882381f98acea97544352c539160418cde378836896fdfb415c57f0b",
+     "bytes": 19481
+    },
+    "emulator.log": {
+     "sha256": "d62094bafda6a5b2e756b4113ef72157b9c661b5f19f7503a23af1d91a7435d6",
+     "bytes": 3065
+    },
+    "pairing-code.png": {
+     "sha256": "1500908a3980e51dea1613c61a7f8e394d8f983adbb80e4d5683bc6cbcf33439",
+     "bytes": 8787
+    },
+    "pairing.png": {
+     "sha256": "1500908a3980e51dea1613c61a7f8e394d8f983adbb80e4d5683bc6cbcf33439",
+     "bytes": 8787
+    }
+   },
+   "last_ble_debug": "BLE Debug: up=15s init=1 conn=1 auth=0 connects=1 disconnects=0 authOK=0 nav=0 route=0 gps=0 settings=0 rejectAuth=1",
+   "map_status_lines": [
+    "mapFound=0 mapBlocks=0"
+   ],
+   "firmware_lines": [
+    "BLE: Ownership pairing confirmed with physical button press",
+    "BLE: Device ownership registered",
+    "BLE: Disconnecting unauthenticated client after timeout"
+   ]
+  },
+  "scenario-sd-map": {
+   "command": "tools/bicino.py start --no-build --port 17510 --timeout 120 --sd-image .local/bicino/sd/golden-gate-t3.img; python3 tools/bicino_scenario.py --position 37.8199,-122.4783",
+   "returncode": 0,
+   "passed": true,
+   "checks": {
+    "sd_mounted": true,
+    "map_selected": true,
+    "mtu_185": true,
+    "fresh_unclaimed_guest": true,
+    "unauthenticated_gps_rejected": true,
+    "pairing_reply": true,
+    "confirmation_required": true,
+    "button_confirmation": true,
+    "paired": true,
+    "server_proof_11": true,
+    "authenticated_11": true,
+    "encrypted_notification_initial": true,
+    "notification_proof_initial": true,
+    "protected_writes_applied": true,
+    "map_blocks_read_after_gps": true,
+    "map_found_reported": true,
+    "protected_replay_rejected": true,
+    "main_screen_visible": true,
+    "screen_button_cycle": true,
+    "server_proof_22": true,
+    "authenticated_22": true,
+    "encrypted_notification_reconnect": true,
+    "notification_proof_reconnect": true,
+    "reconnect_protected_gps_applied": true,
+    "no_guest_panic": true,
+    "single_boot": true
+   },
+   "storage": {
+    "mode": "sd-card",
+    "image": ".local/bicino/sd/golden-gate-t3.img",
+    "sha256": "c5c9fef2934599147630f96b237d3b218c1efe009eba0f5d2e226a830ac3b52d",
+    "bytes": 67108864,
+    "active_map": {
+     "mapId": "golden-gate-labels-t3",
+     "root": "/VECTMAP/.maps/golden-gate-labels-t3"
+    },
+    "reads_after_gps": {
+     "/VECTMAP/.maps/golden-gate-labels-t3/-209+069/15_7.fmb": 2,
+     "/VECTMAP/.maps/golden-gate-labels-t3/-209+069/15_8.fmb": 1,
+     "/VECTMAP/active-map.json": 3
+    }
+   },
+   "confirmation_delay_seconds": 1,
+   "position_microdegrees": [
+    37819900,
+    -122478300
+   ],
+   "sd_maps": true,
+   "emulator_commit": "7ce4819f0836b4093edad46f698fae7e91227a80",
+   "emulator_dirty": false,
+   "emulator_binary_sha256": "91df738706aef3f4537b9c3b84f48d5ce713da4f81d6280389b88c026d5c8766",
+   "emulator_command": [
+    "target/release/esp32sim",
+    "--board",
+    "waveshare-amoled175",
+    "--boot",
+    "rom",
+    "--rom",
+    ".local/roms/esp32s3_rev0_rom.elf",
+    "--flash-mb",
+    "16",
+    "--psram-mb",
+    "8",
+    "--bootloader",
+    ".local/bicino/inputs/816488928818ec54/bootloader.bin",
+    "--ptable",
+    ".local/bicino/inputs/816488928818ec54/partitions.bin",
+    "--app",
+    ".local/bicino/inputs/816488928818ec54/firmware.bin",
+    "--elf",
+    ".local/bicino/inputs/816488928818ec54/firmware.elf",
+    "--ble",
+    "--console",
+    "usb",
+    "--no-dump",
+    "--tft-png",
+    ".local/bicino/runs/20261029T114628.417726Z/screen.png",
+    "--gram-png",
+    ".local/bicino/runs/20261029T114628.417726Z/native-gram.png",
+    "--flash-at",
+    "0xe000=.local/bicino/inputs/816488928818ec54/boot_app0.bin",
+    "--sd",
+    ".local/bicino/sd/golden-gate-t3.img",
+    "--debug",
+    "sdmmc",
+    "--web",
+    "17510",
+    "--web-dir",
+    "web"
+   ],
+   "artifacts": {
+    "serial.log": {
+     "sha256": "22c20a63c98d80918ebcbf2cf3a253a9a648d038e09a7a5c3d8060561352525f",
+     "bytes": 23160
+    },
+    "emulator.log": {
+     "sha256": "80b1a2f8cf55fd9b07aadf7e70ff2b7f65ac79c6daadf73a213870f0f19eb93f",
+     "bytes": 190423
+    },
+    "scenario-serial.log": {
+     "sha256": "b8e51ff94c75f362acd66c50536e87f9a1985207c912dba7aaf259ddf1a8350a",
+     "bytes": 513
+    },
+    "pairing-code.png": {
+     "sha256": "ef8ae2f623411e4fb3941a9a6ad9fb53cc661dd4b98271123d1af057da0be8b6",
+     "bytes": 8413
+    },
+    "pairing.png": {
+     "sha256": "ef8ae2f623411e4fb3941a9a6ad9fb53cc661dd4b98271123d1af057da0be8b6",
+     "bytes": 8413
+    },
+    "map-sd.png": {
+     "sha256": "6a363e7c47d96f7db9c7d9e696fa2a4c9d5bb130faa8d24c96e3a215248a3e98",
+     "bytes": 6123
+    },
+    "page-after-button.png": {
+     "sha256": "2bf3d28b357c8aeba9d1d7c1f5f57e1591cb782b0ca1a0bd3d6071cd347478ac",
+     "bytes": 7149
+    },
+    "reconnected.png": {
+     "sha256": "2bf3d28b357c8aeba9d1d7c1f5f57e1591cb782b0ca1a0bd3d6071cd347478ac",
+     "bytes": 7149
+    }
+   },
+   "last_ble_debug": "BLE Debug: up=20s init=1 conn=1 auth=1 connects=2 disconnects=1 authOK=2 nav=1 route=1 gps=2 settings=1 rejectAuth=2",
+   "map_status_lines": [
+    "mapFound=0 mapBlocks=0",
+    "mapFound=1 mapBlocks=2"
+   ]
+  }
+ },
+ "retained_failures": [
+  "scenario-delay-13: ownership registered after the modeled BOOT press 13 s after connecting, then 'Disconnecting unauthenticated client after timeout' before the client's claim and authentication. Present at 50aaf9b1 and still at f37a084f: esp32/lib/ble_navigation/ble_navigation.cpp:7535-7547 (and the maintenance-boot copy at 7433-7434) allows 120 s only while a pairing code is pending, then 12 s from the original lastConnectMs. Firmware, not emulator; not fixed here.",
+  "touch, before 7ce4819f: on clean 3928b387 a 10-second run tapping at 7.3/7.6 s (actions.txt sha256 50b723ac62df8cafe68292fd6033a1ceca0a60299c6028f05b313d6b1783c7bb) failed the new touch_contact_read check with touch_contact_reads=0 (emulator.log sha256 95f9a26542e2e2dc42951cde7332f2f416a8ef3252464b4fd4b2aa121aee7a91, serial.log sha256 cc860c4b7360a3abadebb639c8a078c40cb3ed8bdf003a1fe2f06db9be5e81b0); examples/bicino175/touch.txt failed the same way on a dirty tree at 6d860b64. The board raised the CST9217 interrupt on GPIO21; firmware since open-bike-computer 73d2f9ad reads touch only after the GPIO11 edge. Fixed in 7ce4819f: nine contact reads for both scripts.",
+  "run-negative-0.1s: a 0.1-second capture fails readiness and returns 1, as intended.",
+  "run-blank-card: an unformatted card fails sd_mounted (FatFs finds no file system; the firmware's SPI fallback and FFat follow) and the run returns 1, as intended."
+ ],
+ "limitations": [
+  "Synthetic ATT client and emulated SoC; no iPhone, radio, physical board, power or timing claim.",
+  "SD bus untimed on the S3; ideal card; copy-on-write image. The map selection is a hand-written session-less active-map.json, not an app-installed durable map: no transfer, receipt or signature path runs.",
+  "Wall times are single runs on a shared host under other sessions' load; not performance measurements.",
+  "Raw logs, screenshots, firmware and images stay in ignored .local storage; only their hashes are here."
+ ]
+}
