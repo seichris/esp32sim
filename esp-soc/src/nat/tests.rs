@@ -33,14 +33,18 @@ fn socket_pair() -> (TcpStream, TcpStream) {
 }
 
 // The relay is nonblocking; wait for kernel loopback delivery without advancing emulated time.
-fn poll_ready(nat: &mut Nat, now_us: u64) -> Vec<Vec<u8>> {
+fn wait_for_frames(mut poll: impl FnMut() -> Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
     loop {
-        let frames = nat.poll(now_us);
+        let frames = poll();
         if !frames.is_empty() { return frames; }
         assert!(std::time::Instant::now() < deadline, "loopback delivery timed out");
         std::thread::yield_now();
     }
+}
+
+fn poll_ready(nat: &mut Nat, now_us: u64) -> Vec<Vec<u8>> {
+    wait_for_frames(|| nat.poll(now_us))
 }
 
 #[test]
@@ -54,7 +58,7 @@ fn host_listener_relays_only_after_the_guest_completes_the_handshake() {
     let mut host = TcpStream::connect(bind).unwrap();
     host.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
     host.write_all(b"upload").unwrap();
-    let frames = nat.accept_forwarded(mac, guest, gateway, 0);
+    let frames = wait_for_frames(|| nat.accept_forwarded(mac, guest, gateway, 0));
     assert_eq!(frames.len(), 1);
     let syn = &frames[0][34..];
     assert_eq!(syn[13], SYN);

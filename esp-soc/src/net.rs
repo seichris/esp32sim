@@ -328,6 +328,15 @@ mod tests {
 
     #[test]
     fn inbound_listener_waits_for_dhcp_and_relearns_the_station_after_reset() {
+        let wait_for_syn = |net: &mut VirtualNet, now_us| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            loop {
+                let frames = net.poll(now_us);
+                if !frames.is_empty() { return frames; }
+                assert!(std::time::Instant::now() < deadline, "forwarded SYN timed out");
+                std::thread::yield_now();
+            }
+        };
         let mut nat = crate::nat::Nat::new(false);
         let bind = nat.listen("127.0.0.1:0".parse().unwrap(), 8080).unwrap();
         let mut net = VirtualNet::new(false);
@@ -340,7 +349,7 @@ mod tests {
         request.extend_from_slice(&[53, 1, 3, 255]);
         let station = [0x02, 1, 2, 3, 4, 5];
         assert_eq!(net.dhcp(&request, &station).len(), 1);
-        let syn = net.poll(1);
+        let syn = wait_for_syn(&mut net, 1);
         assert_eq!(syn.len(), 1);
         assert_eq!(&syn[0][..6], &station);
         assert_eq!(&syn[0][30..34], &net.sta_ip);
@@ -350,7 +359,7 @@ mod tests {
         assert!(net.poll(2).is_empty());
         let other_station = [0x02, 5, 4, 3, 2, 1];
         assert_eq!(net.dhcp(&request, &other_station).len(), 1);
-        assert_eq!(&net.poll(3)[0][..6], &other_station);
+        assert_eq!(&wait_for_syn(&mut net, 3)[0][..6], &other_station);
     }
 
     #[test]
