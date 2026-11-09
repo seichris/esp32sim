@@ -157,6 +157,9 @@ def status(state):
     storage = saved.get("storage", {})
     if storage.get("mode") == "sd-card":
         report["storage_checks"] = capture.sd_checks(boot, storage)
+        report["storage_mount_finished"] = bool(capture.re.search(
+            r"^SDIO: summary ok=0 .* next=ffat$|^BOOT_STAGE .*event=complete .*name=storage\b",
+            boot, capture.re.MULTILINE))
     if (output / "live-result.json").exists():
         report["result"] = json.loads((output / "live-result.json").read_text())
     return report
@@ -250,6 +253,9 @@ def start(args):
                     if report["guest_panic"]:
                         os.kill(state["pid"], signal.SIGTERM)
                         raise ValueError(f"Guest panic; see {output / 'serial.log'}")
+                    # An unusable card can stall in flash fallback before BLE or boot-ready.
+                    if report.get("storage_mount_finished") and not report["storage_checks"]["sd_mounted"]:
+                        raise ValueError(f"Live storage checks failed (sd_mounted); see {output / 'serial.log'}")
                     if report["boot_ready"] and report["correct_target"] and report["ble_initialized"]:
                         failed = [name for name, ok in report.get("storage_checks", {}).items() if not ok]
                         if failed:
