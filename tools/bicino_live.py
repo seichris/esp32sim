@@ -4,6 +4,7 @@ import base64
 import contextlib
 import fcntl
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -154,6 +155,10 @@ def status(state):
     manifest = output / "manifest.json"
     saved = json.loads(manifest.read_text()) if manifest.exists() else {}
     report["limitations"] = saved.get("limitations", capture.LIMITATIONS)
+    if "map_lan" in saved:
+        profile = capture.re.search(r"^BOOT_META .*\bprofile=([^\s]+)", boot, capture.re.MULTILINE)
+        report["map_lan"] = {"listen": saved["map_lan"], "firmware_profile_ok":
+                             bool(profile and profile[1] == "WAVESHARE_AMOLED_175_SIMULATOR")}
     storage = saved.get("storage", {})
     if storage.get("mode") == "sd-card":
         report["storage_checks"] = capture.sd_checks(boot, storage)
@@ -168,6 +173,7 @@ def status(state):
 def worker(args):
     # The inherited advisory lock survives start() exiting and is released on worker death.
     lock = os.fdopen(args.lock_fd, "w")
+    card_fds = () if args.sd_lock_fd is None else (args.sd_lock_fd,)
     output = Path(args.output)
     command = json.loads((output / "command.json").read_text())
     state = {"schema": 1, "id": args.session, "pid": os.getpid(), "output": str(output),
@@ -183,7 +189,7 @@ def worker(args):
     signal.signal(signal.SIGINT, stop)
     try:
         with (output / "serial.log").open("wb") as serial, (output / "emulator.log").open("wb") as emulator:
-            child = subprocess.Popen(command, cwd=capture.ROOT, stdout=serial, stderr=emulator)
+            child = subprocess.Popen(command, cwd=capture.ROOT, stdout=serial, stderr=emulator, pass_fds=card_fds)
             state["emulator_pid"] = child.pid
             capture.save(SESSION, state)
             link = LOCAL / (".live-" + args.session)
@@ -208,36 +214,45 @@ def worker(args):
 
 
 def start(args):
-    lock = (LOCAL / "live.lock").open("w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise ValueError("A Bicino live session is already running; use status or stop") from None
+    with (LOCAL / "live.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("A Bicino live session is already running; use status or stop") from None
+        with capture.locked_storage(args) as (storage, card_fds):
+            return launch(args, lock, storage, card_fds)
+
+
+def launch(args, lock, storage, card_fds):
     # Fail before launching if another application owns the requested port.
     with socket.socket() as probe:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(("127.0.0.1", args.port))
-    storage = capture.storage_for(args)
     manifest, firmware, rom = capture.prepare(args)
     output = capture.new_output()
     command = capture.command_for(args, firmware, rom, output, manifest, storage)
     pos = command.index("--max-seconds")
     del command[pos:pos + 2]
     command.remove("--no-reboot")  # Enable the browser reset button; logs still retain guest faults.
+    if args.map_lan_ip is not None:
+        command += ["--wifi", "ssid=Bicino-Sim", "--net", f"nat,forward={args.map_lan_ip}:8080"]
     command += ["--web", str(args.port), "--web-dir", str(capture.ROOT / "web")]
     capture.save(output / "command.json", command)
     (output / "command.txt").write_text(capture.shlex.join(command) + "\n")
-    limitations = [capture.STORAGE[storage["mode"]]] + capture.LIMITATIONS[1:]
+    limitations = [capture.storage_limitation(storage)] + capture.LIMITATIONS[1:]
     capture.save(output / "manifest.json", {"firmware": manifest, "emulator_commit": capture.git("rev-parse", "HEAD"),
                  "emulator_dirty": bool(capture.git("status", "--porcelain")),
                  "emulator_binary_sha256": capture.sha(capture.ROOT / "target/release/esp32sim"),
                  "storage": storage, "sd_failure_substitution": storage["mode"] == "no-card-substitution",
+                 **({"map_lan": f"{args.map_lan_ip}:8080"} if args.map_lan_ip is not None else {}),
                  "limitations": limitations})
     worker_command = [sys.executable, str(Path(__file__).resolve()), "--session", output.name,
                       "--output", str(output), "--port", str(args.port), "--lock-fd", str(lock.fileno())]
+    if card_fds:
+        worker_command += ["--sd-lock-fd", str(card_fds[0])]
     with (output / "session.log").open("wb") as log:
         process = subprocess.Popen(worker_command, cwd=capture.ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                   start_new_session=True, pass_fds=(lock.fileno(),))
+                                   start_new_session=True, pass_fds=(lock.fileno(), *card_fds))
     lock.close()
     try:
         deadline = time.monotonic() + args.timeout
@@ -257,6 +272,8 @@ def start(args):
                     if report.get("storage_mount_finished") and not report["storage_checks"]["sd_mounted"]:
                         raise ValueError(f"Live storage checks failed (sd_mounted); see {output / 'serial.log'}")
                     if report["boot_ready"] and report["correct_target"] and report["ble_initialized"]:
+                        if args.map_lan_ip is not None and not report["map_lan"]["firmware_profile_ok"]:
+                            raise ValueError("--map-lan-ip requires the WAVESHARE_AMOLED_175_SIMULATOR firmware profile")
                         failed = [name for name, ok in report.get("storage_checks", {}).items() if not ok]
                         if failed:
                             raise ValueError(f"Live storage checks failed ({', '.join(failed)}); see {output / 'serial.log'}")
@@ -312,8 +329,9 @@ def main():
     parser.add_argument("--firmware-dir", type=Path)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--script", type=Path, help="Native replay script; guest-time deterministic inputs")
-    parser.add_argument("--full-storage-probe", action="store_true", help="No substitution and no card: an empty socket")
-    parser.add_argument("--sd-image", type=Path, help="A FAT image in the microSD socket; no substitution")
+    capture.add_storage_arguments(parser)
+    parser.add_argument("--map-lan-ip", type=ipaddress.IPv4Address,
+                        help="Bind map upload port 8080 on this Mac's private LAN address (simulator firmware profile)")
     parser.add_argument("--emulator-arg", action="append", default=[])
     parser.add_argument("--output", type=Path, help="screen: PNG output path")
     args = parser.parse_args()
@@ -322,6 +340,14 @@ def main():
     try:
         if not 1 <= args.port <= 65535 or not 0 < args.timeout < float("inf"):
             raise ValueError("port must be 1..65535 and timeout must be finite and positive")
+        if args.map_lan_ip is not None:
+            private_lans = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            if not any(args.map_lan_ip in ipaddress.IPv4Network(net) for net in private_lans):
+                raise ValueError("--map-lan-ip must be a private IPv4 address on this Mac")
+            if args.sd_image_rw is None or args.action not in ("start", "live", "restart"):
+                raise ValueError("--map-lan-ip requires a writable SD image and a live launch")
+            if any(flag in {"--wifi", "--net"} for flag in args.emulator_arg):
+                raise ValueError("--map-lan-ip configures --wifi and --net")
         if args.action == "restart" and SESSION.exists():
             stop_session(session())
         if args.action in ("start", "live", "restart"):
@@ -381,6 +407,7 @@ if __name__ == "__main__":
         internal.add_argument("--output", required=True)
         internal.add_argument("--port", type=int, required=True)
         internal.add_argument("--lock-fd", type=int, required=True)
+        internal.add_argument("--sd-lock-fd", type=int)
         worker(internal.parse_args())
     else:
         sys.exit(main())

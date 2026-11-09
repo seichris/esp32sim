@@ -8,7 +8,7 @@ fn flow() -> Tcp {
         dst_ip: [127, 0, 0, 1], dst_port: 80, transport: Transport::Closed,
         guest_write: GuestWrite::Open, host_closed: false,
         our_seq: 100, guest_seq: 200, guest_window: WINDOW,
-        to_host: VecDeque::new(), unacked: VecDeque::new(), last_activity_us: 0 }
+        to_host: VecDeque::new(), unacked: VecDeque::new(), last_activity_us: 0, inbound: false }
 }
 
 fn segment(seq: u32, ack: u32, flags: u8, data: &[u8]) -> Vec<u8> {
@@ -33,14 +33,59 @@ fn socket_pair() -> (TcpStream, TcpStream) {
 }
 
 // The relay is nonblocking; wait for kernel loopback delivery without advancing emulated time.
-fn poll_ready(nat: &mut Nat, now_us: u64) -> Vec<Vec<u8>> {
+fn wait_for_frames(mut poll: impl FnMut() -> Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
     loop {
-        let frames = nat.poll(now_us);
+        let frames = poll();
         if !frames.is_empty() { return frames; }
         assert!(std::time::Instant::now() < deadline, "loopback delivery timed out");
         std::thread::yield_now();
     }
+}
+
+fn poll_ready(nat: &mut Nat, now_us: u64) -> Vec<Vec<u8>> {
+    wait_for_frames(|| nat.poll(now_us))
+}
+
+#[test]
+fn host_listener_relays_only_after_the_guest_completes_the_handshake() {
+    let mac = [2; 6];
+    let guest = [10, 0, 2, 15];
+    let gateway = [10, 0, 2, 2];
+    let mut nat = Nat::new(false);
+    assert!(nat.listen("0.0.0.0:0".parse().unwrap(), 8080).is_err());
+    let bind = nat.listen("127.0.0.1:0".parse().unwrap(), 8080).unwrap();
+    let mut host = TcpStream::connect(bind).unwrap();
+    host.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+    host.write_all(b"upload").unwrap();
+    let frames = wait_for_frames(|| nat.accept_forwarded(mac, guest, gateway, 0));
+    assert_eq!(frames.len(), 1);
+    let syn = &frames[0][34..];
+    assert_eq!(syn[13], SYN);
+    assert_eq!(u16::from_be_bytes(syn[2..4].try_into().unwrap()), 8080);
+    let peer_port = u16::from_be_bytes(syn[..2].try_into().unwrap());
+    let ack = u32::from_be_bytes(syn[4..8].try_into().unwrap()).wrapping_add(1);
+    let guest_segment = |seq, ack, flags, data: &[u8]| {
+        let mut bytes = segment(seq, ack, flags, data);
+        bytes[..2].copy_from_slice(&8080u16.to_be_bytes());
+        bytes[2..4].copy_from_slice(&peer_port.to_be_bytes());
+        bytes
+    };
+    assert!(nat.tcp_in(&mac, &guest, &gateway, &guest_segment(1, ack, ACK, b""), 1).is_empty());
+    assert!(nat.poll(1).is_empty(), "an ACK alone must not release host data");
+    let reply = nat.tcp_in(&mac, &guest, &gateway, &guest_segment(100, ack, SYN | ACK, b""), 2);
+    assert_eq!(reply[0][47], ACK);
+    let duplicate = nat.tcp_in(&mac, &guest, &gateway, &guest_segment(100, ack, SYN | ACK, b""), 3);
+    assert_eq!(reply, duplicate, "retry a lost final handshake ACK");
+    let data = poll_ready(&mut nat, 4);
+    assert_eq!(&data[0][54..], b"upload");
+    nat.tcp_in(&mac, &guest, &gateway, &guest_segment(101, ack.wrapping_add(6), ACK, b"stored"), 5);
+    nat.poll(5);
+    let mut received = [0; 6];
+    host.read_exact(&mut received).unwrap();
+    assert_eq!(&received, b"stored");
+    nat.clear_forwarded_connections();
+    assert_eq!(nat.tcp_flow_counts().active, 0);
 }
 
 #[test]

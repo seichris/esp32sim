@@ -10,6 +10,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use crate::net::packet::{ethernet, ip_packet, transport_checksum, udp_packet, GATEWAY_MAC};
+mod forward;
+use forward::Forward;
 
 const MSS: usize = 1400;
 const WINDOW: u16 = 5840;
@@ -78,6 +80,7 @@ struct Tcp {
     to_host: VecDeque<u8>,
     unacked: VecDeque<Sent>,
     last_activity_us: u64,
+    inbound: bool,
 }
 
 impl Tcp {
@@ -187,6 +190,7 @@ pub struct Nat {
     tcp: Vec<Tcp>,
     udp: Vec<Udp>,
     isn: u32,
+    forward: Option<Forward>,
     pub resolver: [u8; 4],
     pub log: bool,
     pub tcp_opened: u64, pub tcp_refused: u64, pub udp_flows: u64,
@@ -196,7 +200,7 @@ pub struct Nat {
 
 impl Nat {
     pub fn new(log: bool) -> Self {
-        Self { tcp: Vec::new(), udp: Vec::new(), isn: 0x1000, resolver: host_resolver(), log,
+        Self { tcp: Vec::new(), udp: Vec::new(), isn: 0x1000, forward: None, resolver: host_resolver(), log,
             tcp_opened: 0, tcp_refused: 0, udp_flows: 0, udp_evicted: 0, udp_send_errors: 0, bytes_to_host: 0, bytes_to_guest: 0 }
     }
 
@@ -279,7 +283,7 @@ impl Nat {
             self.tcp.push(Tcp { guest_mac: *gmac, guest_ip: *gip, guest_port: sport, dst_ip: *dip, dst_port: dport,
                 transport: Transport::Connecting(pending), guest_write: GuestWrite::Open, host_closed: false,
                 our_seq: self.isn, guest_seq: seq.wrapping_add(1), guest_window: window,
-                to_host: VecDeque::new(), unacked: VecDeque::new(), last_activity_us: now_us });
+                to_host: VecDeque::new(), unacked: VecDeque::new(), last_activity_us: now_us, inbound: false });
             if self.log { eprintln!("[nat] TCP {}:{} -> {}:{} connecting", ip(gip), sport, ip(dip), dport); }
             return Vec::new();
         }
@@ -291,9 +295,20 @@ impl Nat {
             return if flags & FIN != 0 { vec![c.segment(ACK, &[], c.our_seq)] } else { Vec::new() };
         }
         if flags & SYN != 0 {
+            if c.inbound {
+                if !matches!(c.transport, Transport::Connected(_)) || flags & ACK == 0 || ack != c.our_seq { return Vec::new(); }
+                if c.handshake_pending() {
+                    c.guest_seq = seq.wrapping_add(1);
+                    c.guest_window = window;
+                    c.acknowledge(ack);
+                    self.tcp_opened += 1;
+                } else if seq.wrapping_add(1) != c.guest_seq { return Vec::new(); }
+                return vec![c.segment(ACK, &[], c.our_seq)];
+            }
             return if c.handshake_pending() { vec![c.segment(SYN | ACK, &[], c.unacked[0].seq)] } else { Vec::new() };
         }
         if !matches!(c.transport, Transport::Connected(_)) { return Vec::new(); }
+        if c.inbound && c.handshake_pending() { return Vec::new(); }
         if flags & ACK != 0 { c.acknowledge(ack); c.guest_window = window; }
         if c.handshake_pending() { return Vec::new(); }
         if !data.is_empty() || flags & FIN != 0 {
@@ -383,7 +398,8 @@ impl Nat {
             }
         }
         self.tcp.retain(|c| {
-            let timeout = if matches!(c.transport, Transport::TimeWait) { TIME_WAIT_US } else { IDLE_CLOSE_US };
+            let timeout = if c.inbound && c.handshake_pending() { 4_000_000 }
+                else if matches!(c.transport, Transport::TimeWait) { TIME_WAIT_US } else { IDLE_CLOSE_US };
             !c.closed() && now_us.wrapping_sub(c.last_activity_us) < timeout
         });
         self.udp.retain(|f| now_us.wrapping_sub(f.last_activity_us) < IDLE_CLOSE_US);

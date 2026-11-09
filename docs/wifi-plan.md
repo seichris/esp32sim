@@ -76,9 +76,13 @@ Bugs found on the way to a TLS session, each one a place where the model was pla
 - **The AES accelerator's CTR mode** (block mode 3) was being executed as ECB, which the server
   answered with a fatal alert rather than an error we could read.
 
+Native TCP ingress can be enabled explicitly with `--net nat,forward=IP:PORT`.
+The listener forwards opaque TCP bytes to the DHCP station on the same port.
+It only accepts a loopback or private IPv4 bind. With a private bind the virtual
+station gets that address so firmware can advertise a reachable endpoint.
+
 Not yet working:
-- Inbound connections (no port forwarding yet), multicast and mDNS, so `esp-web.local` and Home
-  Assistant discovery do not cross; use IP addresses.
+- Multicast and mDNS, so `esp-web.local` and Home Assistant discovery do not cross.
 - Hardware AES-GCM (block mode 6) and the DS/HMAC peripherals; mbedTLS has not asked for them yet.
 - Roaming, power save, 802.11n rates, multiple stations, WPA3/SAE, PMF.
 

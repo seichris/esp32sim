@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Bicino 1.75 capture and live workflow. Standard library only; never builds/flashes firmware."""
 import argparse
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import math
@@ -31,7 +33,7 @@ STORAGE = {
 }
 LIMITATIONS = [
     STORAGE["no-card-substitution"],
-    "Virtual BLE controller; no real iPhone, RF, pairing or throughput validation.",
+    "Virtual BLE controller; a real phone uses the optional macOS BLE bridge.",
     "AXP2101, RTC, TCA9554 and codec initialization stubs; no power/reset fidelity.",
     "No GPS or IMU; single-contact touch only. Screen is the mounted Bicino orientation.",
     "Timing is emulator wall time, not physical ESP32 performance or battery consumption.",
@@ -143,21 +145,50 @@ def screen_info(path):
     return {"width": size[0], "height": size[1], "distinct_colors": len(colors), "sha256": sha(path)}
 
 
-def storage_for(args):
-    """The storage the guest gets, and what is known about an SD image."""
-    if getattr(args, "sd_image", None) and args.full_storage_probe:
-        raise ValueError("--sd-image and --full-storage-probe exclude each other")
-    if not getattr(args, "sd_image", None):
-        return {"mode": "empty-socket" if args.full_storage_probe else "no-card-substitution"}
-    image = args.sd_image.expanduser().resolve()
-    info = {"mode": "sd-card", "image": str(image), "sha256": sha(image), "bytes": image.stat().st_size}
+def add_storage_arguments(parser):
+    storage = parser.add_mutually_exclusive_group()
+    storage.add_argument("--full-storage-probe", action="store_true", help="No substitution and no card: an empty socket")
+    storage.add_argument("--sd-image", type=Path, help="A copy-on-write FAT image in the microSD socket")
+    storage.add_argument("--sd-image-rw", type=Path, help="A writable FAT image; guest writes persist in this file")
+
+
+@contextlib.contextmanager
+def locked_storage(args):
+    """Hold the card's lock until the emulator exits, including in another checkout."""
+    image = args.sd_image_rw or args.sd_image
+    if image is None:
+        yield {"mode": "empty-socket" if args.full_storage_probe else "no-card-substitution"}, ()
+        return
+    writable = args.sd_image_rw is not None
+    image = image.expanduser().resolve()
+    if not image.is_file():
+        raise ValueError(f"SD image is not a regular file: {image}")
     described = image.with_name(image.name + ".json")
-    if described.is_file():
-        card = json.loads(described.read_text())
-        if card.get("sha256") != info["sha256"]:
-            raise ValueError(f"{image.name} does not match {described.name}")
-        info.update(active_map=card.get("active_map"), files=card.get("files", []))
-    return info
+    if writable and described.exists():
+        raise ValueError("Copy the fixture image to a new path without its JSON manifest before using --sd-image-rw")
+    if writable and any(arg in {"--sd", "--sd-rw"} for arg in args.emulator_arg):
+        raise ValueError("Use --sd-image-rw alone to select the writable card")
+    with image.open("r+b" if writable else "rb") as card_file:
+        try:
+            fcntl.flock(card_file, (fcntl.LOCK_EX if writable else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError(f"SD image already in use: {image}") from None
+        info = {"mode": "sd-card", "image": str(image), "bytes": os.fstat(card_file.fileno()).st_size,
+                "write_through": writable}
+        if not writable:
+            info["sha256"] = sha(image)
+            if described.is_file():
+                card = json.loads(described.read_text())
+                if card.get("sha256") != info["sha256"]:
+                    raise ValueError(f"{image.name} does not match {described.name}")
+                info.update(active_map=card.get("active_map"), files=card.get("files", []))
+        yield info, (card_file.fileno(),)
+
+
+def storage_limitation(storage):
+    if storage.get("write_through"):
+        return "Real SDMMC driver and FatFs on a writable image (untimed bus, one-bit slot 1). Guest writes change the image file."
+    return STORAGE[storage["mode"]]
 
 
 def sd_reads(log, files):
@@ -216,8 +247,7 @@ def command_for(args, firmware, rom, output, manifest, storage):
     if storage["mode"] == "no-card-substitution":
         command += ["--stub", "_ZN7Storage6initSDEv=0xffffffff"]
     elif storage["mode"] == "sd-card":
-        # Copy-on-write: the guest's writes stay in memory and the image is never changed.
-        command += ["--sd", storage["image"], "--debug", "sdmmc"]
+        command += ["--sd-rw" if storage.get("write_through") else "--sd", storage["image"], "--debug", "sdmmc"]
     if args.script:
         shutil.copyfile(args.script, output / "actions.txt")
         command += ["--script", str(output / "actions.txt")]
@@ -228,7 +258,11 @@ def command_for(args, firmware, rom, output, manifest, storage):
 
 
 def run(args):
-    storage = storage_for(args)
+    with locked_storage(args) as (storage, card_fds):
+        return capture_run(args, storage, card_fds)
+
+
+def capture_run(args, storage, card_fds):
     manifest, firmware, rom = prepare(args)
     output = new_output()
     command = command_for(args, firmware, rom, output, manifest, storage)
@@ -237,7 +271,8 @@ def run(args):
     print(f"Capturing {args.seconds:g} emulated seconds; logs: {output}", flush=True)
     with (output / "serial.log").open("wb") as serial, (output / "emulator.log").open("wb") as emulator:
         try:
-            result = subprocess.run(command, cwd=ROOT, stdout=serial, stderr=emulator, timeout=args.timeout)
+            result = subprocess.run(command, cwd=ROOT, stdout=serial, stderr=emulator, timeout=args.timeout,
+                                    pass_fds=card_fds)
             returncode = result.returncode
         except subprocess.TimeoutExpired:
             timed_out, returncode = True, 124
@@ -270,7 +305,7 @@ def run(args):
             checks["map_block_read"] = any(path.endswith(".fmb") for path in storage["reads"])
     passed = all(checks.values())
     metadata = re.search(r"^BOOT_META .*$", serial, re.MULTILINE)
-    limitations = [STORAGE[storage["mode"]]] + LIMITATIONS[1:]
+    limitations = [storage_limitation(storage)] + LIMITATIONS[1:]
     report = {"schema": 1, "passed": passed, "checks": checks, "wall_seconds": round(elapsed, 3),
               "emulated_seconds_requested": args.seconds, "timed_out": timed_out, "returncode": returncode,
               "firmware": manifest, "boot_metadata": metadata.group(0) if metadata else None,
@@ -310,8 +345,7 @@ def main():
     capture.add_argument("--timeout", type=float, default=45, help="Wall timeout in seconds")
     capture.add_argument("--script", type=Path)
     capture.add_argument("--no-build", action="store_true", help="Reuse binary without checking emulator source changes")
-    capture.add_argument("--full-storage-probe", action="store_true", help="No substitution and no card: the real SDMMC driver meets an empty socket")
-    capture.add_argument("--sd-image", type=Path, help="A FAT image in the microSD socket (tools/bicino_sdcard.py builds one); no substitution")
+    add_storage_arguments(capture)
     capture.add_argument("--emulator-arg", action="append", default=[], help="Extra flag/value; repeat, e.g. --emulator-arg=--log-periph")
     args = parser.parse_args()
     LOCAL.mkdir(parents=True, exist_ok=True)

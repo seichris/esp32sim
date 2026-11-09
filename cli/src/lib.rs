@@ -28,6 +28,7 @@ fn help(chip: &str, code: i32) -> ! {
     eprintln!("  --max-seconds S       stop after S emulated seconds (always give one: the run returns)");
     eprintln!("  --console usb|uart0|both|none   which consoles to print (uart0 shows the ROM and bootloader)");
     eprintln!("  --wifi ssid=…,psk=…   a virtual access point with DHCP, DNS, NTP and NAT to the host network");
+    eprintln!("  --net nat,forward=IP:PORT  forward TCP on a private IPv4 or loopback address to the guest");
     eprintln!("  --script F            host actions at emulated times (button presses, touches, serial input, stop)");
     eprintln!("  --tft-png F, --wav F  save the display / the audio at the end of the run");
     eprintln!("  --web PORT            serve the board UI at http://127.0.0.1:PORT/ in real time");
@@ -239,6 +240,9 @@ pub fn parse(args: &[String], default_chip: &str) -> Opts {
     }
     if (o.ble_observe || o.ble_scan) && !o.ble_full { usage_error("BLE central/observer use requires --ble full"); }
     if o.ble_full && o.ble { usage_error("--ble full and --ble are mutually exclusive"); }
+    if o.wifi.is_none() && o.net.split(',').skip(1).any(|option| option.starts_with("forward=")) {
+        usage_error("--net forward requires --wifi");
+    }
     if !o.ble_nearby.is_empty() {
         if !o.ble { usage_error("--ble-nearby needs the virtual controller of --ble"); }
         if let Err(e) = esp_soc::ble::peer::Nearby::parse_all(&o.ble_nearby) { usage_error(&format!("--ble-nearby: {e}")); }
@@ -509,15 +513,28 @@ fn fault_label(f: &cosim::Fault) -> String {
 fn wifi_config(spec: &str, net: &str, net_log: bool) -> (esp_soc::wifi::ApConfig, Option<esp_soc::nat::Nat>) {
     let mut cfg = esp_soc::wifi::ApConfig::parse(spec).unwrap_or_else(|e| { eprintln!("--wifi: {e}"); std::process::exit(2) });
     let (mode, opts) = net.split_once(',').unwrap_or((net, ""));
+    let mut forward = None;
     for kv in opts.split(',').filter(|kv| !kv.is_empty()) {
         match kv.split_once('=') {
             Some(("epoch", v)) => cfg.epoch_s = Some(esp_soc::net::parse_epoch(v).unwrap_or_else(|e| usage_error(&format!("--net: {e}")))),
-            _ => usage_error(&format!("--net: unknown option {kv:?} (epoch=UNIX_SECONDS)")),
+            Some(("forward", v)) if forward.is_none() => {
+                let bind = v.parse::<std::net::SocketAddrV4>().unwrap_or_else(|_| usage_error("--net forward expects IPv4:PORT"));
+                if bind.port() == 0 || matches!(bind.ip().octets()[3], 0 | 255) {
+                    usage_error("--net forward needs a nonzero port and a usable station address");
+                }
+                forward = Some(bind);
+            }
+            _ => usage_error(&format!("--net: invalid or repeated option {kv:?}")),
         }
     }
     let nat = mode == "nat" || mode == "user";
     eprintln!("[emu] virtual AP '{}' bssid {} channel {} ({})", cfg.ssid, esp_soc::wifi::mac_str(&cfg.bssid), cfg.channel, if cfg.psk.is_some() { "WPA2-PSK" } else { "open" });
-    let nat = nat.then(|| esp_soc::nat::Nat::new(net_log));
+    let mut nat = nat.then(|| esp_soc::nat::Nat::new(net_log));
+    if let Some(bind) = forward {
+        let relay = nat.as_mut().unwrap_or_else(|| usage_error("--net forward requires NAT"));
+        relay.listen(bind, bind.port()).unwrap_or_else(|e| usage_error(&format!("--net forward: {e}")));
+        eprintln!("[emu] TCP listener {bind} forwards to guest port {}", bind.port());
+    }
     if let Some(nat) = &nat { eprintln!("[emu] NAT to the host network enabled (DNS via {}.{}.{}.{})", nat.resolver[0], nat.resolver[1], nat.resolver[2], nat.resolver[3]); }
     let net = esp_soc::net::VirtualNet::new(false);   // its fixed addresses, for the line below
     eprintln!("[emu] virtual network: station {}.{}.{}.{}, gateway {}.{}.{}.{} (DHCP, ARP, ICMP, DNS, NTP)", net.sta_ip[0], net.sta_ip[1], net.sta_ip[2], net.sta_ip[3], net.gw_ip[0], net.gw_ip[1], net.gw_ip[2], net.gw_ip[3]);

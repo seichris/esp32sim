@@ -26,6 +26,7 @@ pub struct VirtualNet {
     pub log: bool,
     /// user-mode NAT to the host's network; None keeps everything inside the emulated subnet
     pub nat: Option<crate::nat::Nat>,
+    forward_station: Option<[u8; 6]>,
     pub dhcp_acks: u64,
     pub dns_answers: u64,
     pub ntp_answers: u64,
@@ -50,7 +51,25 @@ impl VirtualNet {
     pub fn new(log: bool) -> Self {
         VirtualNet { gw_mac: GATEWAY_MAC, gw_ip: [10, 0, 2, 2], dns_ip: [10, 0, 2, 3],
                      sta_ip: [10, 0, 2, 15], mask: [255, 255, 255, 0],
-                     log, nat: None, dhcp_acks: 0, dns_answers: 0, ntp_answers: 0, tcp_rejects: 0, arp_replies: 0, pings: 0, unhandled: 0, now_us: 0, epoch_us: None }
+                     log, nat: None, forward_station: None, dhcp_acks: 0, dns_answers: 0, ntp_answers: 0, tcp_rejects: 0, arp_replies: 0, pings: 0, unhandled: 0, now_us: 0, epoch_us: None }
+    }
+
+    pub(crate) fn attach_nat(&mut self, nat: Option<crate::nat::Nat>) {
+        if let Some(bind) = nat.as_ref().and_then(crate::nat::Nat::forward_address).filter(|ip| !ip.is_loopback()) {
+            // The guest announces the host listener's address over its own control channel.
+            // The virtual subnet is isolated from the physical subnet.
+            self.sta_ip = bind.octets();
+            self.gw_ip = self.sta_ip;
+            self.gw_ip[3] = if self.sta_ip[3] == 2 { 1 } else { 2 };
+            self.dns_ip = self.sta_ip;
+            self.dns_ip[3] = if self.sta_ip[3] == 3 { 4 } else { 3 };
+        }
+        self.nat = nat;
+    }
+
+    pub(crate) fn reset_forwarding(&mut self) {
+        self.forward_station = None;
+        if let Some(nat) = &mut self.nat { nat.clear_forwarded_connections(); }
     }
 
     /// Handle one Ethernet frame from the station; returns frames to send back to it.
@@ -172,7 +191,13 @@ impl VirtualNet {
         udp.extend_from_slice(&((8 + b.len()) as u16).to_be_bytes()); udp.extend_from_slice(&[0, 0]);   // checksum optional in IPv4
         udp.extend_from_slice(&b);
 
-        if reply_type == 5 { self.dhcp_acks += 1; }
+        if reply_type == 5 {
+            self.dhcp_acks += 1;
+            if self.nat.as_ref().and_then(crate::nat::Nat::forward_address).is_some() {
+                if self.forward_station.is_some_and(|mac| mac != *src) { self.reset_forwarding(); }
+                self.forward_station = Some(*src);
+            }
+        }
         if self.log { eprintln!("[net] DHCP {} -> {} for {}.{}.{}.{}", if msg_type == 1 { "DISCOVER" } else { "REQUEST" },
                                 if reply_type == 2 { "OFFER" } else { "ACK" },
                                 self.sta_ip[0], self.sta_ip[1], self.sta_ip[2], self.sta_ip[3]); }
@@ -189,7 +214,12 @@ impl VirtualNet {
     /// Pump the NAT's host sockets; returns frames for the guest.
     pub fn poll(&mut self, now_us: u64) -> Vec<Vec<u8>> {
         self.now_us = now_us;
-        match &mut self.nat { Some(n) => n.poll(now_us), None => Vec::new() }
+        let Some(nat) = &mut self.nat else { return Vec::new() };
+        let mut frames = nat.poll(now_us);
+        if let Some(mac) = self.forward_station {
+            frames.extend(nat.accept_forwarded(mac, self.sta_ip, self.gw_ip, now_us));
+        }
+        frames
     }
 
     /// Answer A queries with the local resolver address, so name lookups resolve to something that
@@ -294,6 +324,42 @@ mod tests {
         let first = transmit(&mut host, 1_000_000);
         assert!(host.epoch_us.is_some(), "fixed at the first answer");
         assert_eq!(transmit(&mut host, 11_000_000), first + 10, "then emulated time, not the host's");
+    }
+
+    #[test]
+    fn inbound_listener_waits_for_dhcp_and_relearns_the_station_after_reset() {
+        let wait_for_syn = |net: &mut VirtualNet, now_us| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            loop {
+                let frames = net.poll(now_us);
+                if !frames.is_empty() { return frames; }
+                assert!(std::time::Instant::now() < deadline, "forwarded SYN timed out");
+                std::thread::yield_now();
+            }
+        };
+        let mut nat = crate::nat::Nat::new(false);
+        let bind = nat.listen("127.0.0.1:0".parse().unwrap(), 8080).unwrap();
+        let mut net = VirtualNet::new(false);
+        net.attach_nat(Some(nat));
+        let _first = std::net::TcpStream::connect(bind).unwrap();
+        assert!(net.poll(0).is_empty());
+        let mut request = vec![0; 240];
+        request[0..3].copy_from_slice(&[1, 1, 6]);
+        request[236..240].copy_from_slice(&[0x63, 0x82, 0x53, 0x63]);
+        request.extend_from_slice(&[53, 1, 3, 255]);
+        let station = [0x02, 1, 2, 3, 4, 5];
+        assert_eq!(net.dhcp(&request, &station).len(), 1);
+        let syn = wait_for_syn(&mut net, 1);
+        assert_eq!(syn.len(), 1);
+        assert_eq!(&syn[0][..6], &station);
+        assert_eq!(&syn[0][30..34], &net.sta_ip);
+        net.reset_forwarding();
+        assert_eq!(net.nat.as_ref().unwrap().tcp_flow_counts().active, 0);
+        let _second = std::net::TcpStream::connect(bind).unwrap();
+        assert!(net.poll(2).is_empty());
+        let other_station = [0x02, 5, 4, 3, 2, 1];
+        assert_eq!(net.dhcp(&request, &other_station).len(), 1);
+        assert_eq!(&wait_for_syn(&mut net, 3)[0][..6], &other_station);
     }
 
     #[test]
