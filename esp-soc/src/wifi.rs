@@ -537,13 +537,16 @@ impl StationLink {
     /// `attach` with a fresh access point for `cfg` and network, logging as `debug` says.
     pub fn attach_new(&mut self, cfg: ApConfig, nat: Option<crate::nat::Nat>, debug: &crate::DebugFlags) {
         let mut net = crate::net::VirtualNet::new(debug.has("net"));
-        net.nat = nat;
+        net.attach_nat(nat);
         net.epoch_us = cfg.epoch_s.map(|s| s.saturating_mul(1_000_000));
         self.attach(Some(VirtualAp::new(cfg, debug.has("wifi-frames"))), Some(net));
     }
     /// What a guest reboot keeps: the host's access point, network and relay mode. The queues, the
     /// pacing and the counts start again.
-    pub fn surviving_reboot(self) -> Self { StationLink { ap: self.ap, net: self.net, relay: self.relay, ..Default::default() } }
+    pub fn surviving_reboot(mut self) -> Self {
+        if let Some(net) = &mut self.net { net.reset_forwarding(); }
+        StationLink { ap: self.ap, net: self.net, relay: self.relay, ..Default::default() }
+    }
 
     pub fn ap(&self) -> Option<&VirtualAp> { self.ap.as_ref() }
     pub fn ap_mut(&mut self) -> Option<&mut VirtualAp> { self.ap.as_mut() }

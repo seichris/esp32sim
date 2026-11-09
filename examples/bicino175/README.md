@@ -133,12 +133,13 @@ The guest's storage is one of three explicit modes, recorded as `storage` in
 | `no-card-substitution` | default | `Storage::initSD()` returns `ESP_FAIL` at once; FFat fallback |
 | `empty-socket` | `--full-storage-probe` | the real SDMMC driver meets an empty socket, then the SPI fallback and FFat |
 | `sd-card` | `--sd-image card.img` | the real SDMMC driver and FatFs on a modelled card in the board's socket |
+| `sd-card` | `--sd-image-rw card.img` | the same SD socket with writes saved to the local image |
 
 The card sits in the 1.75-inch board's one-bit socket (CLK 2, CMD 1, D0 3) behind
-the ESP32-S3 SD/MMC host. The image is attached copy-on-write: guest writes stay
-in memory, so the file and its hash never change. `--debug sdmmc` logs every
-command into `emulator.log`, and the checks count the block reads that start in
-each file's sectors.
+the ESP32-S3 SD/MMC host. With `--sd-image`, guest writes stay in memory, so
+the image file and its hash never change. `--debug sdmmc` logs commands into
+`emulator.log`. The fixture checks count block reads using the manifest's
+sector locations.
 
 `tools/bicino_sdcard.py` writes a reproducible FAT32 image (fixed timestamps,
 long file names) and a JSON manifest of every file's SHA-256 and sectors.
@@ -163,6 +164,53 @@ A hand-written selection is not an app-installed durable map: no map transfer,
 manifest receipt or signature check runs. The original firmware snapshot is retained
 because it reproduces a real FFat/PSRAM render-worker assertion after pairing
 and route delivery. A welcome screen alone does not qualify navigation.
+
+### Keep a writable card across sessions
+
+```sh
+mkdir -p .local/bicino/sd
+python3 tools/bicino_sdcard.py empty --out .local/bicino/sd/dev.img
+./tools/bicino.py start --sd-image-rw .local/bicino/sd/dev.img
+./tools/bicino.py restart --sd-image-rw .local/bicino/sd/dev.img
+```
+
+Create the image once. With `--sd-image-rw`, files the firmware writes to the
+card survive stopping the emulator. Start or restart with the same path.
+The launcher records `storage.write_through=true` and locks the card while
+it is attached. To seed a writable card from a fixture, copy just its image
+to a new path. The fixture manifest describes fixed bytes and block locations,
+so the launcher refuses to write through an image with that manifest.
+Use `--sd-image` when you want repeatable runs against a fixed fixture.
+
+The device map library lives on this card. Bicino's app Map Library is a
+separate private service that can redeliver maps to an authorized app.
+Writable storage preserves whatever the firmware installs during a session.
+
+### Send a map from Bicino Dev over the LAN
+
+Build the `WAVESHARE_AMOLED_175_SIMULATOR` profile in open-bike-computer
+using its locked `esp32/tools/build_firmware.py` builder. This profile uses
+the virtual station for map transfers and trusts the development map signer.
+It is a build-only profile. Keep the iPhone and Mac on the same LAN.
+
+```sh
+./tools/bicino.py start --firmware-dir "$FIRMWARE_DIR" \
+  --sd-image-rw .local/bicino/sd/dev.img --map-lan-ip "$MAC_LAN_IPV4"
+python3 tools/bicino_bridge.py
+```
+
+The Mac listens on TCP 8080 at the explicitly selected private IPv4 address.
+The guest receives that address on the isolated virtual AP and announces it
+in the normal authenticated BLE transfer status. The relay forwards TLS
+unchanged. Bicino Dev still pins the guest certificate and the firmware still
+checks the transfer credential and map signature. No hotspot join is needed.
+
+Pair the phone with this simulator, then install a map from Saved Maps.
+Wait for the installed state, then fully restart with the same image and
+LAN address. Inspect the firmware's active map and the card's installed
+files. A browser reset or a transfer status alone does not prove persistence.
+The card preserves maps across process restarts. Pair again to send another
+map after starting a fresh process, which recreates the guest's flash.
 
 ## Debug a failure
 
@@ -298,7 +346,7 @@ describe the native boundary.
 - The firmware `.bin` is unchanged. By default the runner substitutes
   `Storage::initSD()` with `ESP_FAIL` at runtime; the firmware's normal FFat
   fallback formats and runs on emulated flash. Fresh flash is used each run.
-  `--full-storage-probe` and `--sd-image` run the real SDMMC driver instead.
+  `--full-storage-probe`, `--sd-image`, and `--sd-image-rw` run the real SDMMC driver.
   The SD bus is untimed (commands complete within their register write) and
   the card is an ideal one: no card-clock timing, power or insertion events.
 - The CO5300 model receives real QSPI writes with the 466x466 window and 6-pixel

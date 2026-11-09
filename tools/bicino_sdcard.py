@@ -113,7 +113,7 @@ def entries(node, parent_cluster, is_root):
     return b"".join(out)
 
 
-def build(files, out, size_mib=64, label="BICINO"):
+def build(files, out, size_mib=64, label="BICINO", *, exclusive=False):
     size = size_mib << 20
     total = size // SECTOR - PARTITION_LBA
     fat_sectors = -(-(total - RESERVED) // ((256 * 1 + 2) // 2))       # fatgen103, "FAT Type Determination"
@@ -172,7 +172,7 @@ def build(files, out, size_mib=64, label="BICINO"):
     struct.pack_into("<III", info, 484, 0x6141_7272, clusters - used, next_cluster[0])
     info[510:512] = b"\x55\xaa"
     out = Path(out)
-    with out.open("wb") as f:
+    with out.open("xb" if exclusive else "wb") as f:
         f.truncate(size)
         def put(lba, data):
             f.seek(lba * SECTOR)
@@ -256,9 +256,18 @@ def main():
     b.add_argument("--map", type=Path, help="A VECTMAP/<mapId>/ renderer tree to install with a legacy active selection")
     b.add_argument("--map-id", help="mapId and directory name for --map")
     b.add_argument("--tree", action="append", default=[], help="SRC=/DEST: copy a host directory into the image")
+    e = sub.add_parser("empty", help="Create a blank FAT32 card for --sd-image-rw")
+    e.add_argument("--out", type=Path, required=True)
+    e.add_argument("--size-mib", type=int, default=256)
     l = sub.add_parser("list", help="Read an image back")
     l.add_argument("image", type=Path)
     args = parser.parse_args()
+    if args.action == "empty":
+        if args.out.with_name(args.out.name + ".json").exists():
+            raise ValueError("Choose a new card path without a fixture manifest")
+        build([], args.out, args.size_mib, exclusive=True)
+        print(f"{args.out}: empty FAT32 card ({args.size_mib} MiB)")
+        return 0
     if args.action == "list":
         for path, (data, runs) in sorted(read(args.image).items()):
             print(f"{len(data):10d} {hashlib.sha256(data).hexdigest()} {path} lba={runs}")
