@@ -51,7 +51,7 @@ def main():
     completed = False
     storage = {"mode": "no-card-substitution"}
     abandon_result = {}
-    with Guest(response_timeout=args.timeout) as guest:
+    with Guest(response_timeout=args.timeout, command_timeout=args.timeout) as guest:
         output = Path(guest.state["output"])
         if (output / "manifest.json").exists():
             storage = json.loads((output / "manifest.json").read_text()).get("storage", storage)

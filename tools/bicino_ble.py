@@ -31,7 +31,7 @@ class AttError(ValueError):
 
 
 class Guest:
-    def __init__(self, state=None, notification=None, response_timeout=10):
+    def __init__(self, state=None, notification=None, response_timeout=10, command_timeout=5):
         self.state = state or session()
         if not is_running(self.state):
             raise ValueError("Start a live session first: tools/bicino.py start")
@@ -45,6 +45,7 @@ class Guest:
         self.notifications = deque()
         self.notification = notification
         self.response_timeout = response_timeout
+        self.command_timeout = command_timeout
         self.connected = False
         self.mtu = 23
         self.lines = deque()
@@ -63,23 +64,26 @@ class Guest:
     def close(self):
         try:
             if self.connected:
-                self.disconnect()
+                self.disconnect(command_timeout=5)
         finally:
             self.resources.close()
 
-    def command(self, value):
+    def command(self, value, timeout=None):
         self.ws.send({"t": "ble", "command": value})
         # Drain the web connection too: frame delivery must never accumulate indefinitely.
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + (self.command_timeout if timeout is None else timeout)
         while time.monotonic() < deadline:
-            kind, data = self.ws.receive(deadline)
+            try:
+                kind, data = self.ws.receive(deadline)
+            except TimeoutError as error:
+                raise TimeoutError("No BLE command acknowledgement; see emulator.log") from error
             if kind == 1:
                 message = json.loads(data)
                 if message.get("t") == "ble-command":
                     if not message["ok"]:
                         raise ValueError(message["error"])
                     return
-        raise TimeoutError("No BLE command acknowledgement; rebuild the emulator")
+        raise TimeoutError("No BLE command acknowledgement; see emulator.log")
 
     def next_line(self, deadline):
         while time.monotonic() < deadline:
@@ -118,7 +122,7 @@ class Guest:
             raise ValueError("Invalid guest MTU response")
         self.mtu = min(requested, max(23, word(response, 1)))
 
-    def disconnect(self):
+    def disconnect(self, command_timeout=None):
         if not self.connected:
             return
         try:
@@ -126,7 +130,7 @@ class Guest:
                 return
             if self.ws.socket.fileno() == -1:
                 self.ws = WebSocket(self.state["port"])
-            self.command("disconnect")
+            self.command("disconnect", timeout=command_timeout)
             self.wait_line(lambda line: " disconnected" in line)
         finally:
             self.connected = False
