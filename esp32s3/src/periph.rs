@@ -710,6 +710,9 @@ impl Peripherals {
     /// components/soc/esp32s3/include/soc/gpio_pins.h:13-14; v4.4.8 gpio_pins.h:22-23); bit 6 inverts.
     fn sd_signal(&self, sig: usize) -> bool {
         let v = self.gpio.func_in_sel[sig];
+        // GPIO_SIG194..197_IN_SEL selects the matrix (IDF v5.5.1 register/soc/gpio_reg.h:6550-6615;
+        // v4.4.8 gpio_reg.h has the same bit). Without a matrix route the model supplies low.
+        if v & esp_soc::pins::ChipPins::S3.input_select == 0 { return false; }
         let level = match v & 0x3f { 0x38 => true, 0x3c => false, pin => self.gpio.input >> pin & 1 != 0 };
         level ^ (v & 0x40 != 0)
     }

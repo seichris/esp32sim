@@ -176,6 +176,10 @@ fn card_detect_and_write_protect_come_from_the_matrix() {
     esp_soc::SocBus::gpio_set_input(&mut bus, 7, true);
     assert_eq!(bus.read32(SD + reg::CDETECT).unwrap() & 3, 1, "slot 0 empty, slot 1 present");
     assert_eq!(bus.read32(SD + reg::WRTPRT).unwrap() & 2, 0, "slot 1 writable");
+    bus.write32(0x6000_4154 + 4 * 194, 7).unwrap();
+    bus.write32(0x6000_4154 + 4 * 197, 0x38).unwrap();
+    assert_eq!(bus.read32(SD + reg::CDETECT).unwrap() & 1, 0, "the disconnected CD input no longer samples GPIO7");
+    assert_eq!(bus.read32(SD + reg::WRTPRT).unwrap() & 2, 0, "the disconnected WP input ignores the constant high");
 }
 
 #[test]
