@@ -1,0 +1,285 @@
+{
+  "schema": 1,
+  "date": "2026-10-27",
+  "experiment": "EX200",
+  "scope": "Physical iPhone to macOS BLE peripheral proxy and native guest; separate existing-image physical-board smoke",
+  "sources": {
+    "emulatorRustCommit": "2c055eb7bd3e55bfce44a32a4361ba9feccca7d5",
+    "firmwareRepository": "seichris/open-bike-computer",
+    "guestFirmwareCommit": "50aaf9b134ae1de88f1769fcb7742cbea88c7f69",
+    "guestFirmwareSha256": "5be95483ca387d6ac60ce5351cee90b1e818758033c6fa449dd8cfdcaab0eef5",
+    "finalFileSha256": {
+      "tools/bicino_bridge.py": "302166b3f2c361070e24ff1ad5cf7f55971337ac9a2765e4e7e61b7e90bf157f",
+      "tools/bicino/Peripheral.swift": "bcf0a2217a9f2b4cc890ed27415f0f896df6ba222dccb1a8d7dd27139db53a31",
+      "tools/bicino_scenario.py": "988756a0d69b67e57c742ddbdb71474a145f2424c1ef71b33d341c70971b7b67"
+    },
+    "iphoneMeasuredPythonSha256": "725151979efef20064ecd784ade66e9e9900329feb0e57a042334867574892a9",
+    "postIPhoneChange": "Made the native output wrapper explicitly binary/unbuffered; descriptor reads were already unbuffered during the iPhone test. Final configured native launch/shutdown smoke passed."
+  },
+  "environment": {
+    "hostOS": "macOS 26.7.1",
+    "architecture": "arm64",
+    "rust": "stable 1.99.1",
+    "phoneApp": "Bicino Dev 1.11 (30)",
+    "phoneTransport": "USB automation; Bluetooth application transport"
+  },
+  "iphone": {
+    "discovery": true,
+    "comparisonCodesMatched": true,
+    "explicitModeledBootConfirmation": true,
+    "authenticatedSessionsAtNavigationCheckpoint": 3,
+    "routePoints": 26,
+    "guidanceMetresAtCheckpoint": 21,
+    "countersAtNavigationCheckpoint": {
+      "connects": 5,
+      "disconnects": 4,
+      "authOK": 3,
+      "nav": 4,
+      "route": 4,
+      "gps": 1715,
+      "settings": 20,
+      "rejectAuth": 0
+    },
+    "nativeEventsAtCheckpoint": {
+      "notifications": 3455,
+      "maximumWriteBytes": 169,
+      "maximumNotificationBytes": 195,
+      "unsubscribeEvents": 4,
+      "disconnectEvents": 1
+    },
+    "bridgeRestartRecovery": true,
+    "coldAppRelaunchRecovery": true,
+    "countersBeforeIntentionalDeregistration": {
+      "connects": 6,
+      "disconnects": 5,
+      "authOK": 4,
+      "nav": 6,
+      "route": 6,
+      "gps": 2010,
+      "settings": 26,
+      "rejectAuth": 0
+    },
+    "panicBeforeDeregistration": false,
+    "oneBootBeforeIntentionalDeregistration": true,
+    "deregistration": {
+      "guestRebooted": true,
+      "guestUnclaimedAfterReboot": true,
+      "phoneRemovedTemporaryRecord": true,
+      "phoneRetainedTwoExistingRecords": true
+    },
+    "navigationStopped": true,
+    "workoutStarted": false
+  },
+  "physicalBoard": {
+    "model": "Waveshare 1.75-inch",
+    "appReportedGitPrefix": "08c05ea6ff46",
+    "matchingRepositoryCommit": "08c05ea6ff46c9608d16d0b9ff04cd9e15805a85",
+    "appReportedTarget": "WAVESHARE_AMOLED_175",
+    "appReportedStorage": "sdmmc",
+    "appReconnected": true,
+    "operatorConfirmedGuidanceMetres": 35,
+    "navigationStopped": true,
+    "firmwareWritten": false,
+    "serialPortOpened": false,
+    "resetRequested": false,
+    "mapsReplaced": false,
+    "qualifiesPR632": false,
+    "freshBrokerEvidence": false
+  },
+  "controls": {
+    "defaultScenario": {
+      "schema": 1,
+      "passed": true,
+      "checks": {
+        "mtu_185": true,
+        "fresh_unclaimed_guest": true,
+        "unauthenticated_gps_rejected": true,
+        "pairing_reply": true,
+        "confirmation_required": true,
+        "button_confirmation": true,
+        "paired": true,
+        "server_proof_11": true,
+        "authenticated_11": true,
+        "encrypted_notification_initial": true,
+        "notification_proof_initial": true,
+        "protected_writes_applied": true,
+        "protected_replay_rejected": true,
+        "main_screen_visible": true,
+        "screen_button_cycle": true,
+        "server_proof_22": true,
+        "authenticated_22": true,
+        "encrypted_notification_reconnect": true,
+        "notification_proof_reconnect": true,
+        "reconnect_protected_gps_applied": true,
+        "no_guest_panic": true,
+        "single_boot": true
+      },
+      "confirmation_delay_seconds": 1,
+      "physical_iphone": false,
+      "physical_board": false,
+      "sd_maps": false,
+      "note": "Synthetic ATT client; real guest ownership handlers. SD failure substitution and FFat fallback remain."
+    },
+    "lateConfirmationScenario": {
+      "schema": 1,
+      "passed": false,
+      "checks": {
+        "mtu_185": true,
+        "fresh_unclaimed_guest": true,
+        "unauthenticated_gps_rejected": true,
+        "pairing_reply": true,
+        "confirmation_required": true,
+        "button_confirmation": true
+      },
+      "confirmation_delay_seconds": 13.0,
+      "physical_iphone": false,
+      "physical_board": false,
+      "sd_maps": false,
+      "note": "Synthetic ATT client; real guest ownership handlers. SD failure substitution and FFat fallback remain."
+    },
+    "lateOwnershipRegistered": true,
+    "lateUnauthenticatedDisconnect": true,
+    "lateAuthOK": 0,
+    "latePanic": false
+  },
+  "reproduce": {
+    "positive": [
+      "./tools/bicino.py restart --no-build",
+      "python3 tools/bicino_scenario.py"
+    ],
+    "negative": [
+      "./tools/bicino.py restart --no-build",
+      "python3 tools/bicino_scenario.py --confirmation-delay 13"
+    ],
+    "phone": [
+      "./tools/bicino.py start --no-build",
+      "python3 tools/bicino_bridge.py",
+      "Use the Dev app Add Device flow; compare both codes before modeled BOOT, then select a route; deregister the temporary device before CLI restart."
+    ]
+  },
+  "checks": {
+    "rustRecheck": [
+      {
+        "check": "native-clippy",
+        "exit": 0,
+        "elapsed_s": 1.328,
+        "command": [
+          "cargo",
+          "+stable",
+          "clippy",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ]
+      },
+      {
+        "check": "wasm-clippy",
+        "exit": 0,
+        "elapsed_s": 0.101,
+        "command": [
+          "cargo",
+          "+stable",
+          "clippy",
+          "--release",
+          "--target",
+          "wasm32-unknown-unknown",
+          "-p",
+          "esp32sim-wasm",
+          "--features",
+          "jit-tests",
+          "--",
+          "-D",
+          "warnings"
+        ]
+      },
+      {
+        "check": "workspace-tests",
+        "exit": 0,
+        "elapsed_s": 28.633,
+        "command": [
+          "cargo",
+          "+stable",
+          "test",
+          "--release",
+          "--workspace",
+          "--",
+          "--include-ignored",
+          "--skip",
+          "external_"
+        ]
+      }
+    ],
+    "workspaceTestsPassed": 1047,
+    "pythonCompile": true,
+    "coalescedPartialOversizedNativeFrames": true,
+    "configuredNativeLauncherSmoke": {
+      "events": [
+        {
+          "t": "started"
+        },
+        {
+          "t": "bluetooth",
+          "state": 5
+        },
+        {
+          "name": "BikeComputer SIM",
+          "t": "advertising"
+        }
+      ],
+      "cleanExit": true,
+      "helperProcessRemaining": false
+    },
+    "goldensRegenerated": false
+  },
+  "artifacts": {
+    "guestNavigationPng": {
+      "sha256": "299baae18609db60d52ff97ae05a375bfa0fc68b9b3d71a1381dfba55ddc25eb",
+      "bytes": 7515
+    },
+    "physicalInteropSerial": {
+      "sha256": "622f56d912bea3a0eff0d396a3662028968d97be1c3b4e798b31efadcf0e05b0",
+      "bytes": 1495290
+    },
+    "positiveScenarioResult": {
+      "sha256": "329083bde29f94bb5d1639fb5c243434595699dba49755d473e39896e71f6069",
+      "bytes": 1024
+    },
+    "lateScenarioResult": {
+      "sha256": "27f987367055599e626f9c2ee9aec3f72c160e7dd4da05cbae04436dcbf5e844",
+      "bytes": 477
+    },
+    "lateScenarioSerial": {
+      "sha256": "717a96fb2d5f6179325d155ea44844c64e1ce068a12687af92d5687f1e913d4a",
+      "bytes": 125036
+    }
+  },
+  "retainedNegatives": [
+    "Direct-child native launch reported unauthorized Bluetooth.",
+    "LaunchServices app/stream paths inside the protected workspace failed at spawn.",
+    "Buffered readline plus descriptor readiness could strand coalesced messages; framing control now passes.",
+    "Two slow iPhone confirmations failed before the final framing fix; isolated synthetic late confirmation reproduces the firmware deadline independently.",
+    "The first launcher-only smoke omitted configure, so the helper correctly never initialized Bluetooth; configured smoke passes.",
+    "Deregistration UI briefly reported unconfirmed disconnect, then completed and removed the test record.",
+    "A large test-pipe write blocked its harness; it was interrupted and the oversized-frame check was repeated using a prefilled accumulator."
+  ],
+  "limitations": [
+    "Storage::initSD remains explicitly substituted with ESP_FAIL; real FFat fallback, no SD map background.",
+    "Physical-board smoke uses another existing image and SDMMC; no FFat/render-stack/radio-memory-pressure acceptance.",
+    "Prompt registration passes; a 13-modeled-second confirmation fails in guest firmware and is not fixed here.",
+    "No full map transfer, broad central compatibility, physical performance, power, battery, GPS receiver, Watch workout or RF fidelity qualification."
+  ],
+  "privacy": {
+    "rawCaptures": "Retained locally outside Git for these scoped checks.",
+    "omitted": [
+      "phone and board identifiers",
+      "owner credentials and protected payloads",
+      "native process identities",
+      "hostnames and actual cached discovery name",
+      "precise phone location and route geometry",
+      "phone screenshots and full application logs"
+    ],
+    "effect": "Curated counts, source identities and guest screenshot hash support the bounded workflow observations; this receipt does not provide public raw phone evidence."
+  }
+}

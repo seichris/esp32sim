@@ -1,0 +1,241 @@
+{
+  "schema": 1,
+  "base_commit": "20117b0813ad3e9a1a6e5379794e1ad89290bda1",
+  "candidate_commit": "06cc54ed26ed65a242128e8759e7248b3295cf47",
+  "candidate_dirty": false,
+  "platform": {
+    "architecture": "arm64",
+    "macos": "26.7.1"
+  },
+  "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "binary_sha256": {
+    "main": "01ce67963b32964bfdbe736bc58658ff343e8c5b1ed7e7712baa1aa80416f2fb",
+    "candidate": "0bb000f6fd9191cc21a245d4db60ebdb737801357c9655101e44da8cfa081524"
+  },
+  "inputs": {
+    ".local/roms/esp32s3_rev0_rom.elf": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd",
+    "web/wasm/fw/public/pocket-tank-bootloader.bin": "9556d59f3a10f6b04fa6d75f3142a66034339afafffbd4bbc3d9a127eaa73859",
+    "web/wasm/fw/public/pocket-tank-ptable.bin": "7af5b28608c91167e00778b7f20622f3b47849efebeb3e64117162d73f3e0508",
+    "web/wasm/fw/public/pocket-tank.bin": "443dd24aed14a509e6df597eb3a02635cc07e0fbee6f04db85a62f4d4dadb113",
+    "web/wasm/fw/local/model_q4.bin": "b200bf87c78dc85c4d727f68941ac0b83cced9827037cc169cd2122d71002c2a"
+  },
+  "summary": [
+    {
+      "workload": "pocket-tank",
+      "medians": {
+        "main": 12.319880999999999,
+        "candidate": 12.215665000000001
+      },
+      "percent": -0.8459172617008015,
+      "identical_work": true,
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    }
+  ],
+  "samples": [
+    {
+      "workload": "pocket-tank",
+      "round": 0,
+      "variant": "main",
+      "user_seconds": 12.319880999999999,
+      "wall_seconds": 12.344107166005415,
+      "load": [
+        4.96435546875,
+        15.4296875,
+        25.53466796875
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 0,
+      "variant": "candidate",
+      "user_seconds": 12.195083000000004,
+      "wall_seconds": 12.215791915994487,
+      "load": [
+        4.66162109375,
+        15.02001953125,
+        25.27099609375
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 1,
+      "variant": "candidate",
+      "user_seconds": 12.277394000000001,
+      "wall_seconds": 12.315009124999051,
+      "load": [
+        4.83447265625,
+        14.55908203125,
+        24.92724609375
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 1,
+      "variant": "main",
+      "user_seconds": 12.239983999999993,
+      "wall_seconds": 12.267890292001539,
+      "load": [
+        4.47216796875,
+        14.1611328125,
+        24.66455078125
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 2,
+      "variant": "main",
+      "user_seconds": 12.192622999999998,
+      "wall_seconds": 12.215791209004237,
+      "load": [
+        4.58203125,
+        13.71142578125,
+        24.3203125
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 2,
+      "variant": "candidate",
+      "user_seconds": 12.215665000000001,
+      "wall_seconds": 12.240102791998652,
+      "load": [
+        4.3447265625,
+        13.3583984375,
+        24.07080078125
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 3,
+      "variant": "candidate",
+      "user_seconds": 12.168317000000002,
+      "wall_seconds": 12.188103499996942,
+      "load": [
+        4.4833984375,
+        12.94775390625,
+        23.73681640625
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 3,
+      "variant": "main",
+      "user_seconds": 12.355974000000003,
+      "wall_seconds": 12.428089459004696,
+      "load": [
+        4.48876953125,
+        12.6689453125,
+        23.51171875
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 4,
+      "variant": "main",
+      "user_seconds": 13.012330999999989,
+      "wall_seconds": 13.120639874992776,
+      "load": [
+        4.3330078125,
+        12.36669921875,
+        23.27734375
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    },
+    {
+      "workload": "pocket-tank",
+      "round": 4,
+      "variant": "candidate",
+      "user_seconds": 12.434590000000014,
+      "wall_seconds": 12.495711458002916,
+      "load": [
+        4.560546875,
+        12.02197265625,
+        22.962890625
+      ],
+      "instructions": [
+        1113634993,
+        1490529616
+      ],
+      "console_sha256": "62b7af05631b6eb7cf944f85657f855ba574d747626690f0b3fbd32751923b4a"
+    }
+  ],
+  "limits": "Five alternating pairs plus warmup; aggregate host load retained. No hardware timing, power, RF or speedup claim. Raw process/app inventories and private logs omitted.",
+  "commands": {
+    "pocket-tank": [
+      "esp32sim",
+      "--boot",
+      "rom",
+      "--flash-mb",
+      "16",
+      "--board",
+      "waveshare-amoled18-v2",
+      "--psram-mb",
+      "8",
+      "--rom",
+      "/repo/.local/roms/esp32s3_rev0_rom.elf",
+      "--bootloader",
+      "/repo/web/wasm/fw/public/pocket-tank-bootloader.bin",
+      "--ptable",
+      "/repo/web/wasm/fw/public/pocket-tank-ptable.bin",
+      "--app",
+      "/repo/web/wasm/fw/public/pocket-tank.bin",
+      "--flash-at",
+      "0x290000=/repo/web/wasm/fw/local/model_q4.bin",
+      "--max-seconds",
+      "8",
+      "--no-dump"
+    ]
+  },
+  "logical_cpus": 11,
+  "rust_source_revision": "a09103c42edf786b40bc05f42c9f99024ea38f2e",
+  "conditions": "Same immutable binaries as the loaded comparison. Our live emulator and validation jobs stopped; aggregate load 4.33..4.96 on 11 logical CPUs. Other host work was not controlled.",
+  "privacy": "Local repository paths normalized to /repo. No process inventory, user/device identity, session keys or raw captures retained here. Numeric samples and hashes are unchanged."
+}

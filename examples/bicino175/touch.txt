@@ -1,0 +1,3 @@
+# Mounted screen coordinates; one press/release after the welcome screen boots.
+4.3 touch 135 415 1
+4.6 touch 135 415 0

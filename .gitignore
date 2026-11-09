@@ -1,4 +1,5 @@
 target/
+.local/
 # the Atech firmware moved to github.com/joakimeriksson/atech-firmware; an existing
 # checkout keeps a local build tree here, which is no longer this repo's
 /boards/

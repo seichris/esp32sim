@@ -159,6 +159,11 @@ impl<S: Soc> Machine<S> {
                 "reset" if self.web_restart => { self.button_reset = true; self.bus.request_reset(esp_periph::RST_POWERON); *self.bus.irq_dirty() = true; }
                 "touch" => { let x: u16 = field("x").and_then(|v| v.parse().ok()).unwrap_or(0); let y: u16 = field("y").and_then(|v| v.parse().ok()).unwrap_or(0);
                              let down = field("down").unwrap_or_default() == "1"; self.bus.touch_input(x, y, down); }
+                "ble" => {
+                    let command = field("command").unwrap_or_default();
+                    let error = self.bus.ble_command(&command).err();
+                    w.send_text(&format!("{{\"t\":\"ble-command\",\"ok\":{},\"error\":\"{}\"}}", error.is_none(), json_escape(error.as_deref().unwrap_or(""))));
+                }
                 _ => {}
             }
         }
