@@ -122,7 +122,9 @@ def main():
             guest.subscribe(auth); guest.subscribe(nav)
             def auth_send(value):
                 guest.write(auth["handle"], value.encode())
-                return guest.wait_notification(auth["handle"], timeout=30).decode()
+                # Pairing runs guest ECDH; heavy host load can stretch wall time
+                # without advancing the firmware's pairing deadline.
+                return guest.wait_notification(auth["handle"], timeout=120).decode()
             info = auth_send("INFO").split("|")
             check("fresh_unclaimed_guest", info[:2] == ["DEVICE", "2"] and info[3] == "0")
             if args.abandon == "connected":
