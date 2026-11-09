@@ -51,7 +51,7 @@ def main():
     completed = False
     storage = {"mode": "no-card-substitution"}
     abandon_result = {}
-    with Guest() as guest:
+    with Guest(response_timeout=args.timeout) as guest:
         output = Path(guest.state["output"])
         if (output / "manifest.json").exists():
             storage = json.loads((output / "manifest.json").read_text()).get("storage", storage)
@@ -169,7 +169,7 @@ def main():
             guest.ws.send({"t": "btn", "pin": 0, "v": 1})
             advance_guest(0.15)
             guest.ws.send({"t": "btn", "pin": 0, "v": 0})
-            check("button_confirmation", guest.wait_notification(auth["handle"], 10).decode() == "PAIR_READY|" + device)
+            check("button_confirmation", guest.wait_notification(auth["handle"], args.timeout).decode() == "PAIR_READY|" + device)
             check("paired", auth_send(confirm).startswith("PAIRED|" + device + "|"))
             if args.abandon == "registered":
                 # Registration restarts the unauthenticated window: a registered client that never
@@ -195,7 +195,7 @@ def main():
                 return b"S2" + serial + AESGCM(write_key).encrypt(bytes([channel]) + bytes(7) + serial, plaintext, b"write2|" + bytes([channel]) + serial)
             def encrypted_info(label):
                 guest.write(auth["handle"], protected(1, b"INFO"))
-                frame = guest.wait_notification(auth["handle"])
+                frame = guest.wait_notification(auth["handle"], args.timeout)
                 check("encrypted_notification_" + label, frame[:2] == b"R2" and len(frame) >= 22)
                 serial = frame[2:6]
                 plaintext = AESGCM(notify_key).decrypt(b"\x01" + bytes(7) + serial, frame[6:], b"notify2|\x01" + serial)

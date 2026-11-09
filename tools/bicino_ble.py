@@ -31,7 +31,7 @@ class AttError(ValueError):
 
 
 class Guest:
-    def __init__(self, state=None, notification=None):
+    def __init__(self, state=None, notification=None, response_timeout=10):
         self.state = state or session()
         if not is_running(self.state):
             raise ValueError("Start a live session first: tools/bicino.py start")
@@ -44,6 +44,7 @@ class Guest:
             self.resources = resources.pop_all()
         self.notifications = deque()
         self.notification = notification
+        self.response_timeout = response_timeout
         self.connected = False
         self.mtu = 23
         self.lines = deque()
@@ -153,11 +154,14 @@ class Guest:
                     continue
                 return data
 
-    def request(self, data, timeout=10):
+    def request(self, data):
         if len(data) > self.mtu and data[0] != 2:
             raise ValueError(f"ATT request exceeds negotiated MTU {self.mtu}")
         self.command("att " + data.hex())
-        response = self.packet(time.monotonic() + timeout)
+        try:
+            response = self.packet(time.monotonic() + self.response_timeout)
+        except TimeoutError as error:
+            raise TimeoutError(f"Guest ATT request 0x{data[0]:02x} timed out; see emulator.log and serial.log") from error
         if response[0] == 1:
             raise AttError(response)
         expected = data[0] + 1
