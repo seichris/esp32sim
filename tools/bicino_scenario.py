@@ -30,9 +30,13 @@ def main():
                              "the guest to drop the unauthenticated link about 12 modeled seconds later")
     parser.add_argument("--position", default="0,0",
                         help="LAT,LON in degrees for the route and GPS (default 0,0); put it inside an SD map to render one")
+    parser.add_argument("--timeout", type=float, default=120,
+                        help="Wall seconds to wait for each firmware milestone (default 120)")
     args = parser.parse_args()
     if not 0 <= args.confirmation_delay <= 100:
         parser.error("--confirmation-delay must be between 0 and 100 modeled seconds")
+    if not 0 < args.timeout < float("inf"):
+        parser.error("--timeout must be finite and positive")
     try:
         lat, lon = (round(float(v) * 1_000_000) for v in args.position.split(","))
     except ValueError:
@@ -59,7 +63,7 @@ def main():
         def snapshot(name):
             from bicino_live import WebSocket
             with contextlib.closing(WebSocket(guest.state["port"])) as ws:
-                deadline = time.monotonic() + 90
+                deadline = time.monotonic() + args.timeout
                 while True:
                     kind, data = ws.receive(deadline)
                     if kind == 2 and data[:1] == b"\1":
@@ -68,7 +72,7 @@ def main():
         def advance_guest(seconds):
             target = None
             # Modeled time can run slower than wall time on a loaded host.
-            deadline = time.monotonic() + 90 + 4 * seconds
+            deadline = time.monotonic() + args.timeout + 4 * seconds
             while time.monotonic() < deadline:
                 kind, data = guest.ws.receive(deadline)
                 if kind == 1:
@@ -80,7 +84,7 @@ def main():
                             return
             raise TimeoutError("Guest clock did not advance")
         def guest_time():
-            deadline = time.monotonic() + 90
+            deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
                 kind, data = guest.ws.receive(deadline)
                 if kind == 1 and (message := json.loads(data)).get("t") == "stat":
@@ -97,13 +101,16 @@ def main():
                     guest.connected = False
                     return now - since
             return None
-        def wait_serial(pattern, timeout=90):
-            deadline = time.monotonic() + timeout
+        def wait_serial(pattern):
+            deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
                 serial = (output / "serial.log").read_text(errors="replace")
                 if re.search(pattern, serial):
                     return True
-                guest.ws.receive(deadline)
+                try:
+                    guest.ws.receive(deadline)
+                except TimeoutError as error:
+                    raise TimeoutError(f"Firmware did not report {pattern}; see serial.log") from error
             return False
         def emulator_log():
             return (output / "emulator.log").read_text(errors="replace")
@@ -124,7 +131,7 @@ def main():
                 guest.write(auth["handle"], value.encode())
                 # Pairing runs guest ECDH; heavy host load can stretch wall time
                 # without advancing the firmware's pairing deadline.
-                return guest.wait_notification(auth["handle"], timeout=120).decode()
+                return guest.wait_notification(auth["handle"], timeout=args.timeout).decode()
             info = auth_send("INFO").split("|")
             check("fresh_unclaimed_guest", info[:2] == ["DEVICE", "2"] and info[3] == "0")
             if args.abandon == "connected":
@@ -209,7 +216,7 @@ def main():
             check("protected_writes_applied", wait_serial(r"BLE Debug: [^\n]*auth=1 [^\n]*nav=1 route=1 gps=1 settings=1"))
             if storage.get("active_map"):
                 # The render worker reads the blocks around the new position from the card.
-                deadline = time.monotonic() + 90
+                deadline = time.monotonic() + args.timeout
                 reads = {}
                 while time.monotonic() < deadline:
                     reads = capture.sd_reads(emulator_log()[sd_offset:], storage.get("files", []))
@@ -219,7 +226,7 @@ def main():
                 storage["reads_after_gps"] = reads
                 check("map_blocks_read_after_gps", any(path.endswith(".fmb") for path in reads))
                 # The firmware's own status line: the renderer holds blocks of the active map.
-                deadline, found = time.monotonic() + 90, None
+                deadline, found = time.monotonic() + args.timeout, None
                 while time.monotonic() < deadline and not found:
                     found = re.search(r"SYS: [^\n]*mapFound=1 mapBlocks=([1-9]\d*)", (output / "serial.log").read_text(errors="replace")[len(before):])
                     if not found:
@@ -236,7 +243,7 @@ def main():
             offset = len(serial)
             guest.ws.send({"t": "btn", "pin": 0, "v": 1}); advance_guest(0.15)
             guest.ws.send({"t": "btn", "pin": 0, "v": 0})
-            deadline = time.monotonic() + 90
+            deadline = time.monotonic() + args.timeout
             while time.monotonic() < deadline:
                 changed = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", (output / "serial.log").read_text(errors="replace")[offset:])
                 if changed:

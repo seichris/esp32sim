@@ -276,6 +276,8 @@ before claiming, then sends navigation, route, GPS and settings and rejects a
 replayed GPS frame. It verifies encrypted notifications on two fresh authenticated
 sessions, cycles a configured page through modeled BOOT, and checks for one boot
 with no guest panic.
+On a busy host, `--timeout 300` gives each firmware milestone more wall time
+without changing the guest's modeled timing or pairing deadline.
 It retains `scenario-result.json` and pairing/navigation screenshots in the live
 session directory. It deliberately fails against the original crashing firmware;
 a failed result is not a bridge or physical-device success. No real credential
