@@ -36,7 +36,7 @@ ESP32-S3 peripheral MMIO reads and writes must be aligned 32-bit accesses. Byte 
 | LEDC | 0x60019000 | partial | timers, fractional dividers, static duty latching, interrupts and GPIO-matrix output; hardware fades — |
 | MCPWM0/1 | 0x6001E000/2C000 | partial | up-counting timers, compare latching, simple generator actions, interrupts and GPIO-matrix output; sync, capture, fault, carrier and dead time — |
 | TWAI, USB-OTG | — | — | |
-| SDMMC | 0x60028000 | — | the DesignWare host and SD card are modelled in `esp-periph/src/sdmmc.rs` and wired on the ESP32-P4 only (esp32p4.md, "SD card") |
+| SDMMC | 0x60028000 | partial | the DesignWare host and SD card in `esp-periph/src/sdmmc.rs`, wired on the ESP32-S3 on interrupt source 30 (an optional table entry: firmware that never touches it pays nothing) and the ESP32-P4 (esp32p4.md, "SD card"); IDMAC transfers only, no PIO FIFO. Both S3 slots reach their pads through the GPIO matrix: a card is on slot n while its socket's CLK pad drives SDHOST_CCLK_OUT_n (172, 173); CDETECT and WRTPRT follow SDHOST_CARD_DETECT_N_n and SDHOST_CARD_WRITE_PRT_n (194-197). The IDMAC reaches internal SRAM at its data-bus addresses only (no SOC_SDMMC_PSRAM_DMA_CAPABLE on the S3); anything else is FBE. SYSTEM_PERIP_RST_EN1 bit 7 resets the host. The S3's bus is untimed. Values: IDF v5.5.1 interrupts.h, gpio_sig_map.h, system_reg.h, reg_base.h, cross-checked against v4.4.8 |
 | WiFi baseband/PHY/RF, BT | — | — | radio registers are faked, not modelled; see wifi-plan.md |
 
 CPU-side: full base ISA, FPU (single precision), MAC16, booleans, PIE (all esp-dl/esp-dsp

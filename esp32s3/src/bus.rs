@@ -41,6 +41,28 @@ const _: () = {
     assert!(DBUS_LOW.is_multiple_of(16) && IBUS_LOW.is_multiple_of(16));
 };
 
+/// What the SD/MMC host's IDMAC reaches: internal SRAM at its data-bus addresses. The S3 lacks
+/// SOC_SDMMC_PSRAM_DMA_CAPABLE (IDF v5.5.1 components/soc/esp32s3/include/soc/soc_caps.h:571-581),
+/// so the IDF driver hands the host internal buffers only; any other address is a bus error
+/// (FBE). Writes are collected for the code-page versions.
+struct SdmmcDram<'a> { sram: &'a mut [u8], written: Vec<(usize, usize)> }
+impl SdmmcDram<'_> {
+    fn span(addr: u32, len: usize) -> Result<std::ops::Range<usize>, Fault> {
+        if !(DRAM_LOW..DRAM_HIGH).contains(&addr) || ((DRAM_HIGH - addr) as usize) < len { return Err(Fault::Unmapped); }
+        let off = (addr - DRAM_LOW) as usize + 0x8000;
+        Ok(off..off + len)
+    }
+}
+impl esp_periph::sdmmc::SdmmcMemory for SdmmcDram<'_> {
+    fn read(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Fault> { let r = Self::span(addr, buf.len())?; buf.copy_from_slice(&self.sram[r]); Ok(()) }
+    fn write(&mut self, addr: u32, data: &[u8]) -> Result<(), Fault> {
+        let r = Self::span(addr, data.len())?;
+        self.sram[r.clone()].copy_from_slice(data);
+        self.written.push((r.start, data.len()));
+        Ok(())
+    }
+}
+
 pub struct SocBus {
     pub ble: esp_soc::ble::vhci::Ble,
     pub sram: Vec<u8>,
@@ -465,7 +487,26 @@ impl SocBus {
             self.irq_dirty |= esp_soc::gpio::deliver_board_inputs(&mut *self.board, &mut self.periph.gpio, &mut self.gpio_events, self.cycles);
             self.refresh_tick_budget();
         }
-        self.periph.read32(addr)
+        let v = self.periph.read32(addr);
+        if addr >> 12 == 0x60028 { self.sdmmc_read_irq(); }
+        v
+    }
+    /// A STATUS read can raise the SDMMC's busy-clear interrupt.
+    #[cold]
+    #[inline(never)]
+    fn sdmmc_read_irq(&mut self) {
+        if self.periph.sdmmc.take_read_irq() { esp_periph::Dispatch::refresh_optional(&mut self.periph, 0x28); self.irq_dirty = true; }
+    }
+    /// Carry out the SDMMC command or IDMAC resume the last write started, on the slots' current
+    /// pin routing.
+    #[cold]
+    #[inline(never)]
+    fn run_sdmmc(&mut self) {
+        self.periph.sdmmc.route = self.periph.sd_routes();
+        let mut dram = SdmmcDram { sram: &mut self.sram, written: Vec::new() };
+        self.periph.sdmmc.run(&mut dram);
+        for (off, len) in dram.written { self.note_written(SRC_SRAM, off, len); }
+        esp_periph::Dispatch::refresh_optional(&mut self.periph, 0x28);
     }
     /// EX133: every device-register access must have been deferred out of a multi-quantum run.
     /// One that was not (a PIE or MAC16 word access; nothing real does this) saw early time.
@@ -530,6 +571,7 @@ impl SocBus {
             self.spi3_pins = self.board.uses_spi_pins().then(|| self.periph.spi3_pins());
         }
         self.periph.write32(a, v);
+        if a >> 12 == 0x60028 && self.periph.sdmmc.pending() { self.run_sdmmc(); }
         if matches!(a & !0xfff, 0x6000_4000 | 0x6000_9000) && self.board.uses_gpio_waveform() {
             self.board.gpio_waveform_at(self.cycles, esp_soc::pins::ChipPins::S3.routes(&self.periph.gpio, &self.periph.io_mux));
         }
@@ -967,6 +1009,9 @@ mod gp_spi_board_tests;
 #[cfg(test)]
 #[path = "bus/dma_tests.rs"]
 mod dma_tests;
+#[cfg(test)]
+#[path = "bus/sdmmc_tests.rs"]
+mod sdmmc_tests;
 
 #[cfg(test)]
 #[path = "bus/memory_origin_tests.rs"]
