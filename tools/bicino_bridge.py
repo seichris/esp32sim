@@ -7,7 +7,6 @@ ownership-v2 authentication. Do not run while another task uses the physical iPh
 """
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -22,6 +21,7 @@ import time
 
 import bicino
 from bicino_ble import AttError, Guest
+from bicino_live import is_running
 
 SERVICE = "9d7b3f30-3f6a-4d1c-9f6d-1fbf0e8b1800"
 
@@ -137,94 +137,95 @@ def native_messages(selector, pending):
 
 
 def run(binary):
-    with (bicino.LOCAL / "ble.lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ValueError("Another Bicino BLE bridge owns the guest peer") from None
-        with contextlib.closing(Guest()) as guest:
-            guest.connect()
-            services = guest.discover()
-            service = next(s for s in services if s["uuid"] == SERVICE)
-            guest.disconnect()
-            chars = {c["handle"]: c for c in service["characteristics"]}
-            output = Path(guest.state["output"])
-            bicino.save(output / "bridge-gatt.json", {"mtu": guest.mtu, "service": service})
-            with (output / "bridge.log").open("a", buffering=1) as log, native_helper(binary, output, log) as process:
-                started = time.monotonic()
-                def record(message):
-                    log.write(json.dumps({**message, "host_elapsed_s": round(time.monotonic() - started, 6)}) + "\n")
-                def send(message):
-                    process.stdin.write(json.dumps(message) + "\n")
-                    process.stdin.flush()
-                def notify(handle, value):
-                    send({"t": "notify", "handle": handle, "value": value.hex()})
-                    record({"event": "notification", "handle": handle, "bytes": len(value)})
-                guest.notification = notify
-                selector = selectors.DefaultSelector()
-                selector.register(process.stdout, selectors.EVENT_READ)
-                try:
-                    send({"t": "configure", "service": service, "name": "BikeComputer SIM"})
-                    print(f"Bridge starting; approve macOS Bluetooth access if prompted. Log: {output / 'bridge.log'}", flush=True)
-                    subscribed = set()
-                    native_pending = bytearray()
-                    while process.poll() is None:
-                        for message in native_messages(selector, native_pending):
-                            kind = message.get("t")
-                            record({k: v for k, v in message.items() if k not in {"value", "central", "pid"}})
-                            if kind == "started":
-                                pid = message.get("pid")
-                                if not isinstance(pid, int) or pid < 2:
-                                    raise ValueError("Native helper returned an invalid process identity")
-                                process.native_pid = pid
+    with Guest() as guest:
+        guest.connect()
+        services = guest.discover()
+        service = next(s for s in services if s["uuid"] == SERVICE)
+        guest.disconnect()
+        chars = {c["handle"]: c for c in service["characteristics"]}
+        output = Path(guest.state["output"])
+        bicino.save(output / "bridge-gatt.json", {"mtu": guest.mtu, "service": service})
+        with (output / "bridge.log").open("a", buffering=1) as log, native_helper(binary, output, log) as process:
+            started = time.monotonic()
+            def record(message):
+                log.write(json.dumps({**message, "host_elapsed_s": round(time.monotonic() - started, 6)}) + "\n")
+            def send(message):
+                process.stdin.write(json.dumps(message) + "\n")
+                process.stdin.flush()
+            def notify(handle, value):
+                send({"t": "notify", "handle": handle, "value": value.hex()})
+                record({"event": "notification", "handle": handle, "bytes": len(value)})
+            guest.notification = notify
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+            try:
+                send({"t": "configure", "service": service, "name": "BikeComputer SIM"})
+                print(f"Bridge starting; approve macOS Bluetooth access if prompted. Log: {output / 'bridge.log'}", flush=True)
+                subscribed = set()
+                native_pending = bytearray()
+                next_liveness_check = started
+                while process.poll() is None:
+                    now = time.monotonic()
+                    if now >= next_liveness_check:
+                        if not is_running(guest.state):
+                            raise EOFError("Live emulator stopped; restart the BLE bridge with the new session")
+                        next_liveness_check = now + 1
+                    for message in native_messages(selector, native_pending):
+                        kind = message.get("t")
+                        record({k: v for k, v in message.items() if k not in {"value", "central", "pid"}})
+                        if kind == "started":
+                            pid = message.get("pid")
+                            if not isinstance(pid, int) or pid < 2:
+                                raise ValueError("Native helper returned an invalid process identity")
+                            process.native_pid = pid
+                            continue
+                        if kind in {"bluetooth", "advertising", "fatal"}:
+                            print(json.dumps(message), flush=True)
+                        if kind == "fatal":
+                            raise ValueError(message.get("message", "CoreBluetooth failed"))
+                        if kind == "disconnect":
+                            guest.disconnect(); subscribed.clear()
+                            send({"t": "disconnected"})
+                            continue
+                        if kind not in {"read", "write", "subscribe", "unsubscribe"}:
+                            continue
+                        handle = message.get("handle")
+                        reply = {"t": "reply", "id": message.get("id"), "error": 0}
+                        try:
+                            if handle not in chars:
+                                raise ValueError("Unknown guest attribute")
+                            if kind == "unsubscribe":
+                                if guest.connected and handle in subscribed:
+                                    guest.subscribe(chars[handle], False)
+                                subscribed.discard(handle)
                                 continue
-                            if kind in {"bluetooth", "advertising", "fatal"}:
-                                print(json.dumps(message), flush=True)
-                            if kind == "fatal":
-                                raise ValueError(message.get("message", "CoreBluetooth failed"))
-                            if kind == "disconnect":
-                                guest.disconnect(); subscribed.clear()
-                                send({"t": "disconnected"})
+                            guest.connect(message.get("mtu", 185))
+                            if kind == "subscribe":
+                                guest.subscribe(chars[handle]); subscribed.add(handle)
                                 continue
-                            if kind not in {"read", "write", "subscribe", "unsubscribe"}:
-                                continue
-                            handle = message.get("handle")
-                            reply = {"t": "reply", "id": message.get("id"), "error": 0}
-                            try:
-                                if handle not in chars:
-                                    raise ValueError("Unknown guest attribute")
-                                if kind == "unsubscribe":
-                                    if guest.connected and handle in subscribed:
-                                        guest.subscribe(chars[handle], False)
-                                    subscribed.discard(handle)
-                                    continue
-                                guest.connect(message.get("mtu", 185))
-                                if kind == "subscribe":
-                                    guest.subscribe(chars[handle]); subscribed.add(handle)
-                                    continue
-                                if kind == "read":
-                                    reply["value"] = guest.read(handle, message.get("offset", 0)).hex()
-                                else:
-                                    guest.write(handle, bytes.fromhex(message.get("value", "")), acknowledged=bool(chars[handle]["properties"] & 8))
-                            except AttError as error:
-                                reply["error"] = error.code
-                            except (OSError, EOFError, ValueError, TimeoutError) as error:
-                                reply["error"] = 0x0e
-                                record({"event": "request-failed", "message": str(error)})
-                                if kind in {"subscribe", "unsubscribe"}:
-                                    raise
-                            if kind in {"read", "write"}:
-                                record({"event": "reply", "id": reply["id"], "error": reply["error"]})
-                                send(reply)
-                        if guest.connected:
-                            try:
-                                unexpected = guest.packet(time.monotonic() + 0.01)
-                                raise ValueError(f"Unexpected ATT response {unexpected.hex()}")
-                            except TimeoutError:
-                                pass
-                    raise ValueError("CoreBluetooth helper exited unexpectedly; see bridge.log")
-                finally:
-                    selector.close()
+                            if kind == "read":
+                                reply["value"] = guest.read(handle, message.get("offset", 0)).hex()
+                            else:
+                                guest.write(handle, bytes.fromhex(message.get("value", "")), acknowledged=bool(chars[handle]["properties"] & 8))
+                        except AttError as error:
+                            reply["error"] = error.code
+                        except (OSError, EOFError, ValueError, TimeoutError) as error:
+                            reply["error"] = 0x0e
+                            record({"event": "request-failed", "message": str(error)})
+                            if kind in {"subscribe", "unsubscribe"}:
+                                raise
+                        if kind in {"read", "write"}:
+                            record({"event": "reply", "id": reply["id"], "error": reply["error"]})
+                            send(reply)
+                    if guest.connected:
+                        try:
+                            unexpected = guest.packet(time.monotonic() + 0.01)
+                            raise ValueError(f"Unexpected ATT response {unexpected.hex()}")
+                        except TimeoutError:
+                            pass
+                raise ValueError("CoreBluetooth helper exited unexpectedly; see bridge.log")
+            finally:
+                selector.close()
 
 
 def main():

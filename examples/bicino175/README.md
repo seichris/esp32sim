@@ -70,6 +70,8 @@ reported as a passing test; `run` performs bounded boot checks.
 Session startup verifies cached image hashes. `--no-build` reuses the emulator
 binary explicitly. `--timeout 120` can help while heavy compiler jobs saturate
 the host. A timeout/panic/start failure retains logs and stops the owned worker.
+With `--sd-image`, startup also requires a native mount and checks the active
+map if the image manifest names one. See `storage_checks` in `status`.
 No launch agent, login item, daemon installation, or ordinary firmware-command
 hook is added.
 
@@ -231,6 +233,10 @@ Compound/offset native writes are refused.
 
 `bridge.log` records event metadata, not application payloads. Guest raw ATT
 and firmware logs can include synthetic or real session data; keep them local.
+The bridge, ATT probe, and scripted replay share one guest peer. Stop one
+before starting another. Browser display, touch, and BOOT controls remain
+available while a BLE client owns the peer. Stopping the live emulator also
+ends its bridge.
 Do not run the bridge while another task owns the iPhone. An actual iPhone run
 passed discovery, matching-code registration, protected settings/GPS/navigation,
 bridge and app restart recovery, and deregistration. Full map transfers remain

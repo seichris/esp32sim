@@ -13,7 +13,7 @@ import struct
 import time
 import uuid
 
-from bicino_live import WebSocket, is_running, session
+from bicino_live import WebSocket, ble_peer_lock, is_running, session
 
 
 def word(data, offset=0):
@@ -35,9 +35,13 @@ class Guest:
         self.state = state or session()
         if not is_running(self.state):
             raise ValueError("Start a live session first: tools/bicino.py start")
-        self.ws = WebSocket(self.state["port"])
-        self.log = (Path(self.state["output"]) / "emulator.log").open()
-        self.log.seek(0, 2)
+        with contextlib.ExitStack() as resources:
+            resources.enter_context(ble_peer_lock())
+            self.ws = WebSocket(self.state["port"])
+            resources.callback(lambda: self.ws.close())
+            self.log = resources.enter_context((Path(self.state["output"]) / "emulator.log").open())
+            self.log.seek(0, 2)
+            self.resources = resources.pop_all()
         self.notifications = deque()
         self.notification = notification
         self.connected = False
@@ -45,20 +49,29 @@ class Guest:
         self.lines = deque()
         self.partial = ""
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, _exc, _traceback):
+        if exc_type is None:
+            self.close()
+        else:
+            with contextlib.suppress(OSError, EOFError, ValueError):
+                self.close()
+
     def close(self):
         try:
             if self.connected:
                 self.disconnect()
         finally:
-            self.log.close()
-            self.ws.close()
+            self.resources.close()
 
     def command(self, value):
         self.ws.send({"t": "ble", "command": value})
         # Drain the web connection too: frame delivery must never accumulate indefinitely.
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            kind, data = self.ws.receive()
+            kind, data = self.ws.receive(deadline)
             if kind == 1:
                 message = json.loads(data)
                 if message.get("t") == "ble-command":
@@ -108,6 +121,10 @@ class Guest:
         if not self.connected:
             return
         try:
+            if not is_running(self.state):
+                return
+            if self.ws.socket.fileno() == -1:
+                self.ws = WebSocket(self.state["port"])
             self.command("disconnect")
             self.wait_line(lambda line: " disconnected" in line)
         finally:
@@ -262,7 +279,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["discover", "probe"])
     args = parser.parse_args()
-    with contextlib.closing(Guest()) as guest:
+    with Guest() as guest:
         guest.connect()
         services = guest.discover()
         if args.action == "discover":

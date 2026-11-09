@@ -377,7 +377,9 @@ impl Peer {
                     self.connecting = false;
                     self.connected = false;
                     self.pending = None;
-                    self.commands.clear(); self.raw = false;
+                    // A guest disconnect cancels raw ATT work, but ordinary scripts can
+                    // have queued a reconnect and commands for the next link.
+                    if self.raw { self.commands.clear(); } self.raw = false;
                     self.log.push("disconnected".into());
                 }
                 LinkEvent::Reset => {
@@ -700,23 +702,40 @@ mod tests {
     }
 
     #[test]
-    fn raw_att_maximum_is_fragmented_without_truncating_payload() {
+    fn raw_att_fragments_fit_the_controller_buffer_including_the_l2cap_header() {
         let mut c = Session::default(); connect(&mut c);
-        let mut pdu = vec![0x52,7,0]; pdu.extend((0..514).map(|n| n as u8));
-        c.command(&format!("att {}", hex(&pdu))).unwrap();
-        let mut reassembled = Vec::new();
-        for i in 0..3 {
-            let p = c.pop_packet().unwrap();
-            assert!(p.len() <= 256);
-            assert_eq!(p[2], if i == 0 { 0x20 } else { 0x10 });
-            assert_eq!(word(&p[3..]) as usize, p.len() - 5);
-            reassembled.extend_from_slice(&p[5..]);
+        for len in [247usize, 248, 251, 517] {
+            let mut pdu = vec![0x52,7,0]; pdu.extend((0..len - 3).map(|n| n as u8));
+            c.command(&format!("att {}", hex(&pdu))).unwrap();
+            let mut reassembled = Vec::new();
+            for i in 0..(len + 4).div_ceil(251) {
+                let p = c.pop_packet().unwrap();
+                assert!(p.len() <= 256, "ACL data exceeds 251 bytes for an ATT PDU of {len} bytes");
+                assert_eq!(p[2], if i == 0 { 0x20 } else { 0x10 });
+                assert_eq!(word(&p[3..]) as usize, p.len() - 5);
+                reassembled.extend_from_slice(&p[5..]);
+            }
+            assert_eq!(word(&reassembled) as usize, len);
+            assert_eq!(&reassembled[2..4], [4,0]);
+            assert_eq!(&reassembled[4..], pdu);
         }
-        assert_eq!(&reassembled[..4], [5,2,4,0]);
-        assert_eq!(&reassembled[4..], pdu);
         for bad in ["att ", "att zz", "att 0", &format!("att {}", "00".repeat(518))] {
             assert!(bad.parse::<Command>().is_err());
         }
+    }
+
+    #[test]
+    fn guest_disconnect_preserves_an_ordinary_scripted_reconnect() {
+        let mut c = Session::default(); connect(&mut c);
+        c.command("read 7").unwrap();
+        c.command("connect").unwrap();
+        c.command("read 8").unwrap();
+        cmd(&mut c, 0x0406, &[1,0,0x13]);
+        assert_eq!(c.pending_commands(), 2, "keep the scripted reconnect and its read");
+        cmd(&mut c, 0x200a, &[1]);
+        while c.pop_packet().is_some() {}
+        acl(&mut c, &[0x0b,43]);
+        assert!(c.drain_log().iter().any(|l| l.starts_with("read handle=0x0008 value=2b")));
     }
 
     #[test]

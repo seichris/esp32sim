@@ -120,7 +120,7 @@ impl Controller {
         let len = pdu.len() as u16;
         // Core v5.4 Vol 4 E: HCI ACL fragmentation, first PB=2, continuation PB=1.
         // Preserve the existing small-packet path; a host ATT proxy can negotiate MTU 517.
-        if pdu.len() > 251 {
+        if pdu.len() + 4 > 251 {
             let mut data = Vec::from(len.to_le_bytes());
             data.extend_from_slice(&cid.to_le_bytes()); data.extend_from_slice(pdu);
             for (i, part) in data.chunks(251).enumerate() {

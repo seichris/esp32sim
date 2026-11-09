@@ -47,7 +47,7 @@ def main():
     completed = False
     storage = {"mode": "no-card-substitution"}
     abandon_result = {}
-    with contextlib.closing(Guest()) as guest:
+    with Guest() as guest:
         output = Path(guest.state["output"])
         if (output / "manifest.json").exists():
             storage = json.loads((output / "manifest.json").read_text()).get("storage", storage)
@@ -59,8 +59,9 @@ def main():
         def snapshot(name):
             from bicino_live import WebSocket
             with contextlib.closing(WebSocket(guest.state["port"])) as ws:
+                deadline = time.monotonic() + 90
                 while True:
-                    kind, data = ws.receive()
+                    kind, data = ws.receive(deadline)
                     if kind == 2 and data[:1] == b"\1":
                         write_png(output / (name + ".png"), data)
                         return
@@ -69,7 +70,7 @@ def main():
             # Modeled time can run slower than wall time on a loaded host.
             deadline = time.monotonic() + 90 + 4 * seconds
             while time.monotonic() < deadline:
-                kind, data = guest.ws.receive()
+                kind, data = guest.ws.receive(deadline)
                 if kind == 1:
                     message = json.loads(data)
                     if message.get("t") == "stat":
@@ -81,7 +82,7 @@ def main():
         def guest_time():
             deadline = time.monotonic() + 90
             while time.monotonic() < deadline:
-                kind, data = guest.ws.receive()
+                kind, data = guest.ws.receive(deadline)
                 if kind == 1 and (message := json.loads(data)).get("t") == "stat":
                     return message["time"]
             raise TimeoutError("Guest clock did not advance")
@@ -102,7 +103,7 @@ def main():
                 serial = (output / "serial.log").read_text(errors="replace")
                 if re.search(pattern, serial):
                     return True
-                guest.ws.receive()
+                guest.ws.receive(deadline)
             return False
         def emulator_log():
             return (output / "emulator.log").read_text(errors="replace")
@@ -212,7 +213,7 @@ def main():
                     reads = capture.sd_reads(emulator_log()[sd_offset:], storage.get("files", []))
                     if any(path.endswith(".fmb") for path in reads):
                         break
-                    guest.ws.receive()
+                    guest.ws.receive(deadline)
                 storage["reads_after_gps"] = reads
                 check("map_blocks_read_after_gps", any(path.endswith(".fmb") for path in reads))
                 # The firmware's own status line: the renderer holds blocks of the active map.
@@ -220,7 +221,7 @@ def main():
                 while time.monotonic() < deadline and not found:
                     found = re.search(r"SYS: [^\n]*mapFound=1 mapBlocks=([1-9]\d*)", (output / "serial.log").read_text(errors="replace")[len(before):])
                     if not found:
-                        guest.ws.receive()
+                        guest.ws.receive(deadline)
                 check("map_found_reported", found)
             snapshot("map-sd" if storage.get("active_map") else "map-no-data")
             check("protected_replay_rejected", "Rejected GPS" in delta or "rejected authenticated GPS" in delta or "invalid authenticated GPS" in delta)
@@ -238,7 +239,7 @@ def main():
                 changed = re.findall(r"SYS: [^\n]*screen=main tile=(\w+)", (output / "serial.log").read_text(errors="replace")[offset:])
                 if changed:
                     break
-                guest.ws.receive()
+                guest.ws.receive(deadline)
             else:
                 check("screen_button_cycle", False)
             check("screen_button_cycle", changed[-1] != previous_tile)

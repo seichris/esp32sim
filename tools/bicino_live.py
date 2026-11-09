@@ -46,32 +46,46 @@ class WebSocket:
         self.stream.close()
         self.socket.close()
 
-    def read(self, size):
+    def read(self, size, deadline):
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Timed out waiting for an emulator WebSocket frame")
+            self.socket.settimeout(remaining)
         data = self.stream.read(size)
         if len(data) != size:
             raise EOFError("Emulator disconnected")
         return data
 
-    def receive(self):
-        while True:
-            first, second = self.read(2)
-            if not first & 0x80 or second & 0x80:
-                raise ValueError("Unsupported WebSocket frame")
-            size = second & 127
-            if size == 126:
-                size = struct.unpack(">H", self.read(2))[0]
-            elif size == 127:
-                size = struct.unpack(">Q", self.read(8))[0]
-            if size > 8 * 1024 * 1024:
-                raise ValueError("Oversized WebSocket frame")
-            data = self.read(size)
-            opcode = first & 15
-            if opcode == 8:
-                raise EOFError("Emulator closed the session")
-            if opcode == 9:
-                self.send_frame(10, data)
-            elif opcode in (1, 2):
-                return opcode, data
+    def receive(self, deadline=None):
+        timeout = self.socket.gettimeout()
+        try:
+            while True:
+                first, second = self.read(2, deadline)
+                if not first & 0x80 or second & 0x80:
+                    raise ValueError("Unsupported WebSocket frame")
+                size = second & 127
+                if size == 126:
+                    size = struct.unpack(">H", self.read(2, deadline))[0]
+                elif size == 127:
+                    size = struct.unpack(">Q", self.read(8, deadline))[0]
+                if size > 8 * 1024 * 1024:
+                    raise ValueError("Oversized WebSocket frame")
+                data = self.read(size, deadline)
+                opcode = first & 15
+                if opcode == 8:
+                    raise EOFError("Emulator closed the session")
+                if opcode == 9:
+                    self.send_frame(10, data)
+                elif opcode in (1, 2):
+                    return opcode, data
+        except (OSError, EOFError, ValueError):
+            # A timed-out buffered reader or a partial frame cannot be reused.
+            self.close()
+            raise
+        finally:
+            if self.socket.fileno() != -1:
+                self.socket.settimeout(timeout)
 
     def send_frame(self, opcode, data):
         size = len(data)
@@ -113,6 +127,16 @@ def session():
     return json.loads(SESSION.read_text())
 
 
+@contextlib.contextmanager
+def ble_peer_lock():
+    with (LOCAL / "ble.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("Another Bicino BLE client owns the guest peer") from None
+        yield
+
+
 def is_running(state):
     # Check process identity as well as PID: an old session must never signal a reused PID.
     process = subprocess.run(["ps", "-p", str(state["pid"]), "-o", "command="], capture_output=True, text=True)
@@ -128,7 +152,11 @@ def status(state):
                   ble_initialized="BLE: Server started, advertising" in boot,
                   guest_panic=bool(capture.re.search(r"assert failed:|Guru Meditation|panic'ed|abort\(\) was called|event=safe_mode", serial)))
     manifest = output / "manifest.json"
-    report["limitations"] = json.loads(manifest.read_text())["limitations"] if manifest.exists() else capture.LIMITATIONS
+    saved = json.loads(manifest.read_text()) if manifest.exists() else {}
+    report["limitations"] = saved.get("limitations", capture.LIMITATIONS)
+    storage = saved.get("storage", {})
+    if storage.get("mode") == "sd-card":
+        report["storage_checks"] = capture.sd_checks(boot, storage)
     if (output / "live-result.json").exists():
         report["result"] = json.loads((output / "live-result.json").read_text())
     return report
@@ -223,10 +251,14 @@ def start(args):
                         os.kill(state["pid"], signal.SIGTERM)
                         raise ValueError(f"Guest panic; see {output / 'serial.log'}")
                     if report["boot_ready"] and report["correct_target"] and report["ble_initialized"]:
+                        failed = [name for name, ok in report.get("storage_checks", {}).items() if not ok]
+                        if failed:
+                            raise ValueError(f"Live storage checks failed ({', '.join(failed)}); see {output / 'serial.log'}")
                         try:
-                            with contextlib.closing(WebSocket(args.port)) as ws:
+                            remaining = max(0.001, deadline - time.monotonic())
+                            with contextlib.closing(WebSocket(args.port, timeout=min(5, remaining))) as ws:
                                 for _ in range(100):
-                                    kind, data = ws.receive()
+                                    kind, data = ws.receive(deadline)
                                     if kind == 2 and data[:1] == b"\1":
                                         write_png(output / "screen.png", data)
                                         break
@@ -299,11 +331,14 @@ def main():
             return 0
         if not report["running"]:
             raise ValueError("No live session; run tools/bicino.py start")
-        with contextlib.closing(WebSocket(state["port"])) as ws:
+        with contextlib.ExitStack() as resources:
+            ws = resources.enter_context(contextlib.closing(WebSocket(state["port"])))
             if args.action == "input":
                 message = json.loads(args.message or "null")
                 if not isinstance(message, dict) or message.get("t") not in {"touch", "btn", "serial", "key", "ble"}:
                     raise ValueError("Expected a touch, btn, serial, key or ble JSON message")
+                if message["t"] == "ble":
+                    resources.enter_context(ble_peer_lock())
                 ws.send(message)
                 acknowledged = message["t"] != "ble"
                 # Wait for a fresh stat: confirms the emulator has advanced, not semantic acceptance.
