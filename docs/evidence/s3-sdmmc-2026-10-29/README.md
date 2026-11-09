@@ -21,6 +21,7 @@ ESP-IDF v4.4.8 (Arduino-ESP32 2.x); both agree:
 | SDHOST_CCLK_OUT_1/2 172/173, CARD_DETECT_N_1/2 194/195, CARD_WRITE_PRT_1/2 196/197 | `include/soc/gpio_sig_map.h:312-361` | `gpio_sig_map.h:320-369` |
 | SYSTEM_SDIO_HOST_CLK_EN / SDIO_HOST_RST, bit 7 of PERIP_CLK_EN1 / PERIP_RST_EN1 | `register/soc/system_reg.h:318-323, 580-585` | `system_reg.h:328, 590` |
 | GPIO_MATRIX_CONST_ONE_INPUT 0x38, CONST_ZERO_INPUT 0x3C | `include/soc/gpio_pins.h:13-14` | `gpio_pins.h:22-23` |
+| GPIO_SIG194–197_IN_SEL, bit 7 enables the matrix route | `register/soc/gpio_reg.h:6550-6615` | `gpio_reg.h:6558-6620` |
 | SOC_SDMMC_USE_GPIO_MATRIX, no SOC_SDMMC_PSRAM_DMA_CAPABLE | `include/soc/soc_caps.h:571-581` | — |
 
 The host's register block follows `register/soc/sdmmc_struct.h` (CLOCK at 0x800, HCON fields as
@@ -38,6 +39,11 @@ W1C), CDETECT/WRTPRT follow the matrix inputs, PERIP_RST_EN1 resets the host and
 guest reboot keeps the card and its counts, `--sd` needs a socket and an untimed bus, and without
 a card the registers answer and no source is raised. Removing any one of the post-command source
 refresh, the STATUS-read hook, the reset hook or the code-page bookkeeping fails exactly one test.
+
+The card-detect and write-protect test also clears the matrix selection bit
+while its selected GPIO or constant is high. The disconnected inputs return
+low in the model. On `b204c6fb`, the card-detect assertion fails because the
+host still samples GPIO7 after the matrix route is disabled.
 
 Firmware: seichris/open-bike-computer `main` at `f37a084f` (WAVESHARE_AMOLED_175, build 105)
 mounts a FAT32 card through the real ESP-IDF SDMMC driver on the 1.75-inch board's socket (slot
